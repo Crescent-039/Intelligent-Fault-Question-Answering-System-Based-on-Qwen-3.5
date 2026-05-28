@@ -3,7 +3,40 @@ GUI/build-GUI-Desktop_Qt_5_12_12_MinGW_32_bit-Debug/
 node_modules/
 dist/
 dist-ssr/
+
+# 可能的 Visual Studio 相关文件
 *.local
+.project
+*.booproj
+*.pidb
+*.suo
+*.svd
+*.user
+*.userprefs
+*.pth
+bin/
+obj/
+.vs/
+checkpoint/
+
+# 后端相关文件
+data/
+docs/
+Qwen3.5-4B/
+Qwen3.5-9B/
+Qwen3-embedding-4B/
+
+# 遗留的测试文件
+Qwen_Chat.py
+
+.directory
+.idea
+__pycache__
+logs/
+.ipynb_checkpoints/
+venv/
+.env
+
 
 # 其他前端临时文件
 .npm/
