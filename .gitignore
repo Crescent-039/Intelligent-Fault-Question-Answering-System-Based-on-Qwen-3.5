@@ -1,0 +1,10 @@
+GUI/build-GUI-Desktop_Qt_5_12_12_MinGW_32_bit-Debug/
+# Node/Vue 依赖忽略
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# 其他前端临时文件
+.npm/
+.eslintcache
