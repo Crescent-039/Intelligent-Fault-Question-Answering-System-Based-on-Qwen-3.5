@@ -8,7 +8,23 @@ LLM_MODEL_PATH = os.path.join(BASE_DIR, "Qwen3.5-4B")
 EMBED_MODEL_PATH = os.path.join(BASE_DIR, "Qwen3-Embedding-4B")
 
 # 文档路径
-DOC_PATH = os.path.join(BASE_DIR, "docs", "demo.txt")
+DOCS_DIR = os.path.join(BASE_DIR, "docs")
+
+# 支持的文档后缀，后面可以接着补充
+SUPPORTED_EXTENSIONS = {
+    ".txt",
+    ".md",
+    ".pdf",
+    ".docx",
+    ".csv",
+    ".xlsx",
+    ".xls",
+    ".html",
+    ".htm",
+    ".pptx"
+}
+# 是否递归扫描 docs 子目录
+RECURSIVE_SCAN = True
 
 # 数据保存路径
 DATA_DIR = os.path.join(BASE_DIR, "data")

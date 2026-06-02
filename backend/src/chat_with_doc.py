@@ -4,6 +4,7 @@ from config import FAISS_INDEX_PATH, CHUNKS_PATH, TOP_K
 from utils import load_json
 from embedding_model import EmbeddingModel
 from llm_model import LLMModel
+from transformers import TextIteratorStreamer
 
 
 def retrieve(query, embedder, index, chunk_records, top_k=3):
@@ -65,11 +66,12 @@ def main():
         # 5. 拼接上下文
         context = build_context(results)
 
-        # 6. LLM 回答
+        # 6. LLM 流式回答
         print("\n正在生成答案...\n")
-        answer = llm.chat(query, context)
-        print("模型回答：")
-        print(answer)
+        print("模型回答：", end="", flush=True)
+        for new_text in llm.stream_chat(query, context):
+            print(new_text, end="", flush=True)
+        print()
 
 
 if __name__ == "__main__":
