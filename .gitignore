@@ -41,3 +41,5 @@ venv/
 # 其他前端临时文件
 .npm/
 .eslintcache
+.package.json
+.package-lock.json

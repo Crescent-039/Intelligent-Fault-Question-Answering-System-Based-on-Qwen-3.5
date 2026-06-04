@@ -92,7 +92,7 @@ class LLMModel:
         response = self.tokenizer.decode(generated_ids, skip_special_tokens=True)
         return response
 
-    def stream_chat(self, query, context):
+    def stream_chat(self, query, context, temperature=0.3, max_tokens=512, enable_thinking=False):
         """
         流式输出：返回一个生成器。
         使用方式：
@@ -114,7 +114,7 @@ class LLMModel:
             messages,
             tokenize=False,
             add_generation_prompt=True,
-            enable_thinking=False
+            enable_thinking=enable_thinking
         )
 
         inputs = self.tokenizer(text, return_tensors="pt").to(self.model.device)
@@ -127,10 +127,10 @@ class LLMModel:
         generation_kwargs = dict(
             **inputs,
             streamer=streamer,
-            max_new_tokens=MAX_NEW_TOKENS,
+            max_new_tokens=max_tokens,
             do_sample=True,
-            temperature=TEMPERATURE,
-            top_p=TOP_P,
+            temperature=temperature,
+            top_p=0.9,
             use_cache=True,
             pad_token_id=self.tokenizer.eos_token_id,
             eos_token_id=self.tokenizer.eos_token_id
