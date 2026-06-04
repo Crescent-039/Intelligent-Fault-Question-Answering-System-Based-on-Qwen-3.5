@@ -1,7 +1,9 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import {
+  ACCEPT_ATTRIBUTE,
   DEFAULT_USER_ID,
+  SUPPORTED_EXTENSIONS,
   deleteFile,
   fetchFileStatus,
   fetchFiles,
@@ -18,6 +20,8 @@ const uploadedFiles = ref([])
 const loading = ref(false)
 const uploading = ref(false)
 const notice = ref('')
+const acceptAttribute = ACCEPT_ATTRIBUTE
+const supportedFormatText = SUPPORTED_EXTENSIONS.join(' / ')
 
 const supportedFiles = computed(() => selectedFiles.value.filter((item) => item.supported))
 
@@ -122,12 +126,12 @@ onMounted(loadFiles)
     </div>
 
     <div class="upload-dropzone">
-      <input ref="fileInput" hidden type="file" multiple accept=".pdf,.png,.jpg,.jpeg" @change="collectFiles" />
+      <input ref="fileInput" hidden type="file" multiple :accept="acceptAttribute" @change="collectFiles" />
       <input ref="folderInput" hidden type="file" multiple webkitdirectory directory @change="collectFiles" />
 
       <div class="dropzone-glow"></div>
       <p class="dropzone-title">选择文件或文件夹</p>
-      <p class="muted">支持 pdf / png / jpg，文件夹会自动拆分为多个文件上传。</p>
+      <p class="muted">支持 {{ supportedFormatText }}，文件夹会自动拆分为多个文件上传。</p>
       <div class="action-row">
         <button class="primary-btn" @click="openFileDialog">选择文件</button>
         <button class="secondary-btn" @click="openFolderDialog">选择文件夹</button>

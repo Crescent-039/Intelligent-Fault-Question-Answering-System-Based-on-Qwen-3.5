@@ -1,7 +1,11 @@
 <script setup>
 import { computed, ref } from 'vue'
 import ConversationPanel from './conversation/GUI.vue'
+import { getFrontendConfig } from './config'
 import UploadPanel from './upload/GUI.vue'
+
+const frontendConfig = getFrontendConfig()
+const protocolLabel = frontendConfig.api?.protocol_label || 'HTTP Upload · WS Stream · Config Driven'
 
 const activeMode = ref('upload')
 
@@ -56,7 +60,7 @@ const activeModeInfo = computed(() => modes.find((mode) => mode.key === activeMo
           <p class="eyebrow">Current Mode</p>
           <h2>{{ activeModeInfo.label }}</h2>
         </div>
-        <div class="protocol-pill">HTTP Upload · WS Stream · Localhost</div>
+        <div class="protocol-pill">{{ protocolLabel }}</div>
       </header>
 
       <UploadPanel v-if="activeMode === 'upload'" />

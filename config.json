@@ -1,0 +1,96 @@
+{
+  "protocol": {
+    "version": "1.0"
+  },
+  "frontend": {
+    "api": {
+      "http_base_url": "http://127.0.0.1:11451",
+      "config_endpoint": "/api/config/frontend",
+      "ws_path": "/ws/chat",
+      "protocol_label": "HTTP Upload · WS Stream · Config Driven"
+    },
+    "user": {
+      "default_user_id": "default_user"
+    },
+    "ws": {
+      "heartbeat_interval_ms": 30000
+    },
+    "upload": {
+      "supported_extensions": ["pdf", "png", "jpg", "jpeg"],
+      "max_file_size_mb": 100,
+      "max_batch_count": 200,
+      "concurrent_uploads": 3,
+      "poll_interval_ms": 2000
+    },
+    "chat": {
+      "system_prompt": "你是一个文档分析助手",
+      "welcome_message": "你好，我是文档分析助手。上传并完成索引后，你可以在这里进行基础 RAG 对话。",
+      "cleared_message": "对话已清空。你可以开始新的问题。",
+      "rag": {
+        "enabled": true,
+        "top_k": 5
+      },
+      "model_config": {
+        "temperature": 0.7,
+        "max_tokens": 2048
+      }
+    }
+  },
+  "backend": {
+    "server": {
+      "host": "127.0.0.1",
+      "port": 11451,
+      "ws_path": "/ws/chat"
+    },
+    "cors": {
+      "allow_origins": [
+        "http://127.0.0.1:5173",
+        "http://localhost:5173"
+      ]
+    },
+    "storage": {
+      "upload_dir": "./data/uploads",
+      "index_dir": "./data/index",
+      "temp_dir": "./data/temp"
+    },
+    "upload": {
+      "supported_extensions": ["pdf", "png", "jpg", "jpeg"],
+      "max_file_size_mb": 100
+    },
+    "preprocess": {
+      "enable_ocr": true,
+      "ocr_engine": "paddleocr",
+      "pdf_extract_mode": "auto",
+      "deduplicate": true,
+      "clean_text": true
+    },
+    "rag": {
+      "chunk_size": 800,
+      "chunk_overlap": 150,
+      "top_k_default": 5,
+      "score_threshold": 0.0,
+      "enable_rerank": false
+    },
+    "llm": {
+      "provider": "qwen",
+      "model_name": "qwen3",
+      "timeout_sec": 120,
+      "stream": true
+    },
+    "embedding": {
+      "model_name": "bge-large-zh",
+      "batch_size": 16
+    },
+    "runtime": {
+      "chat_timeout_sec": 120,
+      "cancel_grace_period_ms": 300,
+      "max_concurrent_chat_per_user": 2,
+      "max_queue_size": 100
+    },
+    "logging": {
+      "level": "INFO",
+      "save_file": true,
+      "log_dir": "./logs"
+    }
+  }
+}

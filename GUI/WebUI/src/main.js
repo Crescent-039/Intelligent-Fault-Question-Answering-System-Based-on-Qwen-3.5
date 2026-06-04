@@ -1,5 +1,11 @@
 import { createApp } from 'vue'
 import './style.css'
-import App from './App.vue'
+import { loadRuntimeConfig } from './config'
 
-createApp(App).mount('#app')
+async function bootstrap() {
+  await loadRuntimeConfig()
+  const { default: App } = await import('./App.vue')
+  createApp(App).mount('#app')
+}
+
+bootstrap()

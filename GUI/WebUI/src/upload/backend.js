@@ -1,7 +1,11 @@
-const API_BASE = ''
+import { getFrontendConfig } from '../config'
 
-export const DEFAULT_USER_ID = 'default_user'
-export const SUPPORTED_EXTENSIONS = ['pdf', 'png', 'jpg', 'jpeg']
+const frontendConfig = getFrontendConfig()
+const API_BASE = frontendConfig.api?.http_base_url || ''
+
+export const DEFAULT_USER_ID = frontendConfig.user?.default_user_id || 'default_user'
+export const SUPPORTED_EXTENSIONS = frontendConfig.upload?.supported_extensions || ['pdf', 'png', 'jpg', 'jpeg']
+export const ACCEPT_ATTRIBUTE = SUPPORTED_EXTENSIONS.map((extension) => `.${extension}`).join(',')
 
 export function isSupportedFile(file) {
   if (!file?.name) return false

@@ -1,15 +1,17 @@
 <script setup>
 import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import {
+  DEFAULT_CLEARED_MESSAGE,
   ChatStreamClient,
   DEFAULT_MODEL_CONFIG,
   DEFAULT_RAG_CONFIG,
+  DEFAULT_WELCOME_MESSAGE,
   buildChatMessages,
   createDefaultWsUrl,
 } from './backend'
 
 const messages = ref([
-  { role: 'assistant', content: '你好，我是文档分析助手。上传并完成索引后，你可以在这里进行基础 RAG 对话。' },
+  { role: 'assistant', content: DEFAULT_WELCOME_MESSAGE },
 ])
 const input = ref('')
 const connectionStatus = ref('disconnected')
@@ -111,7 +113,7 @@ function handleKeydown(event) {
 
 function clearChat() {
   if (generating.value) stopGeneration()
-  messages.value = [{ role: 'assistant', content: '对话已清空。你可以开始新的问题。' }]
+  messages.value = [{ role: 'assistant', content: DEFAULT_CLEARED_MESSAGE }]
 }
 
 onMounted(initClient)

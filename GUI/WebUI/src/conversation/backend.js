@@ -1,17 +1,24 @@
-export const DEFAULT_SYSTEM_PROMPT = '你是一个文档分析助手'
+import { buildWebSocketUrl, getFrontendConfig } from '../config'
+
+const frontendConfig = getFrontendConfig()
+const chatConfig = frontendConfig.chat || {}
+
+export const DEFAULT_SYSTEM_PROMPT = chatConfig.system_prompt || '你是一个文档分析助手'
+export const DEFAULT_WELCOME_MESSAGE = chatConfig.welcome_message || '你好，我是文档分析助手。上传并完成索引后，你可以在这里进行基础 RAG 对话。'
+export const DEFAULT_CLEARED_MESSAGE = chatConfig.cleared_message || '对话已清空。你可以开始新的问题。'
 
 export const DEFAULT_MODEL_CONFIG = {
-  temperature: 0.7,
-  max_tokens: 2048,
+  temperature: chatConfig.model_config?.temperature ?? 0.7,
+  max_tokens: chatConfig.model_config?.max_tokens ?? 2048,
 }
 
 export const DEFAULT_RAG_CONFIG = {
-  enabled: true,
-  top_k: 5,
+  enabled: chatConfig.rag?.enabled ?? true,
+  top_k: chatConfig.rag?.top_k ?? 5,
 }
 
 export function createDefaultWsUrl() {
-  return 'ws://127.0.0.1:5173/ws/chat'
+  return buildWebSocketUrl(frontendConfig.api?.ws_path || '/ws/chat')
 }
 
 function createRequestId() {
@@ -93,7 +100,8 @@ export class ChatStreamClient {
 
   startHeartbeat() {
     this.stopHeartbeat()
-    this.heartbeatTimer = window.setInterval(() => this.ping(), 30_000)
+    const heartbeatInterval = frontendConfig.ws?.heartbeat_interval_ms ?? 30_000
+    this.heartbeatTimer = window.setInterval(() => this.ping(), heartbeatInterval)
   }
 
   stopHeartbeat() {
