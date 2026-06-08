@@ -92,17 +92,30 @@ class LLMModel:
         response = self.tokenizer.decode(generated_ids, skip_special_tokens=True)
         return response
 
-    def stream_chat(self, query, context, temperature=0.3, max_tokens=512, enable_thinking=False):
+    def stream_chat(self, query, context, system_prompt=None, temperature=0.3, max_tokens=512, enable_thinking=False):
         """
         流式输出：返回一个生成器。
         使用方式：
             for text in llm.stream_chat(query, context):
                 print(text, end="", flush=True)
         """
+        default_system_prompt = (
+            "你是一个文档问答助手。"
+            "请严格依据资料回答问题。"
+            "如果资料中没有答案，请说“资料中没有提供相关信息”。"
+        )
+        if system_prompt:
+            final_system_prompt = (
+                    default_system_prompt
+                    + "\n\n用户自定义系统提示词：\n"
+                    + system_prompt
+            )
+        else:
+            final_system_prompt = default_system_prompt
         messages = [
             {
                 "role": "system",
-                "content": "你是一个文档问答助手。你必须严格依据提供的资料回答问题，不要凭空补充。如果资料中没有答案，请明确说“资料中没有提供相关信息”。"
+                "content": final_system_prompt
             },
             {
                 "role": "user",
