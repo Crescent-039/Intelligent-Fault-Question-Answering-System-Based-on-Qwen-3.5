@@ -2,7 +2,6 @@
 import { computed, onMounted, ref } from 'vue'
 import {
   ACCEPT_ATTRIBUTE,
-  DEFAULT_USER_ID,
   SUPPORTED_EXTENSIONS,
   deleteFile,
   fetchFileStatus,
@@ -11,8 +10,12 @@ import {
   normalizeUploadError,
   uploadFile,
 } from './backend'
+import { appState, setUploadUserId } from '../state/appState'
 
-const userId = ref(DEFAULT_USER_ID)
+const userId = computed({
+  get: () => appState.upload.userId,
+  set: (value) => setUploadUserId(value),
+})
 const fileInput = ref(null)
 const folderInput = ref(null)
 const selectedFiles = ref([])

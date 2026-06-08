@@ -33,6 +33,7 @@ const DEFAULT_RUNTIME_CONFIG = {
       model_config: {
         temperature: 0.7,
         max_tokens: 2048,
+        enable_thinking: false,
       },
     },
   },

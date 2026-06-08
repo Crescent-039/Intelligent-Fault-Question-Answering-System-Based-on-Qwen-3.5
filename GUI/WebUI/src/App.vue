@@ -1,28 +1,43 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { KeepAlive, computed } from 'vue'
 import ConversationPanel from './conversation/GUI.vue'
 import { getFrontendConfig } from './config'
+import SettingsPanel from './settings/GUI.vue'
+import { appState, setActiveMode } from './state/appState'
 import UploadPanel from './upload/GUI.vue'
 
 const frontendConfig = getFrontendConfig()
 const protocolLabel = frontendConfig.api?.protocol_label || 'HTTP Upload · WS Stream · Config Driven'
 
-const activeMode = ref('upload')
+const activeMode = computed({
+  get: () => appState.activeMode,
+  set: (value) => setActiveMode(value),
+})
 
 const modes = [
+  {
+    key: 'conversation',
+    label: '流式对话',
+    description: '标准 LLM 一问一答，支持历史记录与重连',
+  },
   {
     key: 'upload',
     label: '文档预处理',
     description: '上传文件或文件夹，构建文档索引',
   },
   {
-    key: 'conversation',
-    label: '流式对话',
-    description: '标准 LLM 一问一答，支持中断生成',
+    key: 'settings',
+    label: '对话设置',
+    description: '配置温度、输出长度、思考模式与 RAG',
   },
 ]
 
 const activeModeInfo = computed(() => modes.find((mode) => mode.key === activeMode.value))
+const activeComponent = computed(() => {
+  if (activeMode.value === 'conversation') return ConversationPanel
+  if (activeMode.value === 'settings') return SettingsPanel
+  return UploadPanel
+})
 </script>
 
 <template>
@@ -63,8 +78,9 @@ const activeModeInfo = computed(() => modes.find((mode) => mode.key === activeMo
         <div class="protocol-pill">{{ protocolLabel }}</div>
       </header>
 
-      <UploadPanel v-if="activeMode === 'upload'" />
-      <ConversationPanel v-else />
+        <KeepAlive>
+          <component :is="activeComponent" />
+        </KeepAlive>
     </section>
   </main>
 </template>

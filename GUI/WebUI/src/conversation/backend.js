@@ -10,6 +10,7 @@ export const DEFAULT_CLEARED_MESSAGE = chatConfig.cleared_message || '对话已�
 export const DEFAULT_MODEL_CONFIG = {
   temperature: chatConfig.model_config?.temperature ?? 0.7,
   max_tokens: chatConfig.model_config?.max_tokens ?? 2048,
+  enable_thinking: chatConfig.model_config?.enable_thinking ?? false,
 }
 
 export const DEFAULT_RAG_CONFIG = {
@@ -114,6 +115,11 @@ export class ChatStreamClient {
     this.stopHeartbeat()
     this.socket?.close()
     this.socket = null
+  }
+
+  reconnect() {
+    this.close()
+    this.connect()
   }
 
   handleMessage(rawMessage) {
