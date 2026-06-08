@@ -69,7 +69,7 @@ def main():
         # 6. LLM 流式回答
         print("\n正在生成答案...\n")
         print("模型回答：", end="", flush=True)
-        for new_text in llm.stream_chat(query, context):
+        for new_text in llm.stream_chat(query, context, enable_thinking=True):
             print(new_text, end="", flush=True)
         print()
 

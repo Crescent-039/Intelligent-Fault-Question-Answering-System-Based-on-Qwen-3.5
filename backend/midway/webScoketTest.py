@@ -12,7 +12,7 @@ sys.path.append("..")
 sys.path.append("../src")
 # 按你的实际路径修改
 # 假设你的 send 函数在 src/rag_chat_service.py
-from src.Communication import send
+from src.Communication import RagChatService
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 CONFIG_PATH = ROOT_DIR / "config.json"
@@ -40,6 +40,13 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+rag_service = RagChatService()
+
+
+@app.on_event("startup")
+async def startup_event():
+    rag_service.init_rag_service()
 
 
 @app.get("/api/config/frontend")
@@ -193,7 +200,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 # =========================
                 # 3. 调用本地模型 send(...)
                 # =========================
-                sync_generator = send(
+                sync_generator = rag_service.send(
                     messages=messages,
                     file_ids=file_ids,
                     rag_top_k=rag_top_k,
