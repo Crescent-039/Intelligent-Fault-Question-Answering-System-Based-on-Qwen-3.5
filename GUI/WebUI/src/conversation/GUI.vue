@@ -47,11 +47,30 @@ function parseMessageContent(message) {
   }
 
   const rawContent = message.content || ''
-  const thinkingMatch = rawContent.match(/Thinking Process([\s\S]*?)<\/think>/)
+  const thinkingStartToken = 'Thinking Process:'
+  const thinkingEndToken = '</think>'
+  const thinkingStartIndex = rawContent.indexOf(thinkingStartToken)
+
+  if (thinkingStartIndex === -1) {
+    return {
+      thinkingContent: '',
+      answerContent: rawContent,
+    }
+  }
+
+  const thinkingEndIndex = rawContent.indexOf(thinkingEndToken, thinkingStartIndex + thinkingStartToken.length)
+  const answerBeforeThinking = rawContent.slice(0, thinkingStartIndex)
+
+  if (thinkingEndIndex === -1) {
+    return {
+      thinkingContent: rawContent.slice(thinkingStartIndex + thinkingStartToken.length).trimStart(),
+      answerContent: answerBeforeThinking.trimEnd(),
+    }
+  }
 
   return {
-    thinkingContent: thinkingMatch ? thinkingMatch[1].trim() : '',
-    answerContent: rawContent.replace(/Thinking Process[\s\S]*?<\/think>/, '').trim(),
+    thinkingContent: rawContent.slice(thinkingStartIndex + thinkingStartToken.length, thinkingEndIndex).trim(),
+    answerContent: `${answerBeforeThinking}${rawContent.slice(thinkingEndIndex + thinkingEndToken.length)}`.trim(),
   }
 }
 
