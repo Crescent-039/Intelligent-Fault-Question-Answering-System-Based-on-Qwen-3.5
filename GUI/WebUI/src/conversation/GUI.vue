@@ -31,8 +31,29 @@ const sessions = computed(() => appState.chatSessions)
 const currentSession = computed(() => getActiveChatSession())
 const messages = computed(() => currentSession.value?.messages || [])
 const chatSettings = computed(() => appState.chatSettings)
+const renderMessages = computed(() => messages.value.map((message) => ({
+  ...message,
+  parsed: parseMessageContent(message),
+})))
 
 let client
+
+function parseMessageContent(message) {
+  if (message.role !== 'assistant') {
+    return {
+      thinkingContent: '',
+      answerContent: message.content || '',
+    }
+  }
+
+  const rawContent = message.content || ''
+  const thinkingMatch = rawContent.match(/Thinking Process([\s\S]*?)<\/think>/)
+
+  return {
+    thinkingContent: thinkingMatch ? thinkingMatch[1].trim() : '',
+    answerContent: rawContent.replace(/Thinking Process[\s\S]*?<\/think>/, '').trim(),
+  }
+}
 
 function scrollToBottom() {
   nextTick(() => {
@@ -234,12 +255,25 @@ onBeforeUnmount(() => client?.close())
         </div>
 
         <div ref="scrollArea" class="message-list">
-          <article v-for="(message, index) in messages" :key="index" class="message" :class="message.role">
+          <article v-for="(message, index) in renderMessages" :key="index" class="message" :class="message.role">
             <div class="message-role">{{ message.role === 'user' ? '你' : '助手' }}</div>
             <div class="message-bubble">
-              <span v-if="message.content">{{ message.content }}</span>
-              <span v-else class="typing">正在思考...</span>
-              <span v-if="message.streaming" class="cursor"></span>
+              <div class="message-content-stack">
+                <details v-if="message.parsed.thinkingContent" class="thinking-block" :open="message.streaming">
+                  <summary>
+                    <span class="thinking-title">Thinking Process</span>
+                    <span class="thinking-hint">点击展开/收起</span>
+                  </summary>
+                  <div class="thinking-body">{{ message.parsed.thinkingContent }}</div>
+                </details>
+
+                <div v-if="message.parsed.answerContent" class="answer-content">
+                  {{ message.parsed.answerContent }}
+                  <span v-if="message.streaming" class="cursor"></span>
+                </div>
+
+                <div v-else-if="message.streaming" class="typing">正在思考...</div>
+              </div>
             </div>
           </article>
         </div>
