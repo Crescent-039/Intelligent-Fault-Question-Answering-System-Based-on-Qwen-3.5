@@ -60,8 +60,6 @@ async def upload_file(
     finally:
         file.file.close()
         
-    
-
     # 5. 返回成功响应
     # 因为没有 UUID 了，你可以把 final_filename 当作 file_id 来返回前端
     return {
@@ -72,6 +70,7 @@ async def upload_file(
         "path": f"/uploads/shared/{final_filename}", 
         "index_status": "pending"
     }
+
 
 
 @app.get("/api/file/{file_id}/status")

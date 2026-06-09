@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import {
   ACCEPT_ATTRIBUTE,
   SUPPORTED_EXTENSIONS,
@@ -25,15 +25,23 @@ const uploading = ref(false)
 const notice = ref('')
 const acceptAttribute = ACCEPT_ATTRIBUTE
 const supportedFormatText = SUPPORTED_EXTENSIONS.join(' / ')
+const previousStatusMap = new Map()
+
+let pollingTimer = null
 
 const supportedFiles = computed(() => selectedFiles.value.filter((item) => item.supported))
 
 const statusText = {
   pending: '等待处理',
+  downloading: '正在下载',
+  downloaded: '下载完成',
+  preprocessing: '正在预处理',
   indexing: '正在索引',
   done: '可用于对话',
   failed: '处理失败',
 }
+
+const activeStatuses = ['pending', 'downloading', 'downloaded', 'preprocessing', 'indexing']
 
 function openFileDialog() {
   fileInput.value?.click()
@@ -57,14 +65,65 @@ function collectFiles(event) {
 
 async function loadFiles() {
   loading.value = true
-  notice.value = ''
   try {
-    uploadedFiles.value = await fetchFiles(userId.value)
+    const files = await fetchFiles(userId.value)
+    handleStatusTransitions(files)
+    uploadedFiles.value = files
+    syncPollingState(files)
   } catch (error) {
     notice.value = error.message || '文件列表获取失败'
   } finally {
     loading.value = false
   }
+}
+
+function handleStatusTransitions(files) {
+  for (const file of files) {
+    const previousStatus = previousStatusMap.get(file.file_id)
+    const currentStatus = file.index_status
+
+    if (previousStatus !== currentStatus) {
+      if (previousStatus !== 'downloaded' && currentStatus === 'downloaded') {
+        notice.value = `${file.filename} 下载完成`
+      }
+
+      if (previousStatus !== 'done' && currentStatus === 'done') {
+        notice.value = `${file.filename} 预处理完成`
+      }
+
+      if (previousStatus !== 'failed' && currentStatus === 'failed' && file.message) {
+        notice.value = `${file.filename} 处理失败：${file.message}`
+      }
+    }
+
+    previousStatusMap.set(file.file_id, currentStatus)
+  }
+}
+
+function hasActiveFiles(files) {
+  return files.some((file) => activeStatuses.includes(file.index_status))
+}
+
+function stopPolling() {
+  if (!pollingTimer) return
+  window.clearTimeout(pollingTimer)
+  pollingTimer = null
+}
+
+function schedulePolling() {
+  stopPolling()
+  pollingTimer = window.setTimeout(async () => {
+    await loadFiles()
+  }, 2000)
+}
+
+function syncPollingState(files = uploadedFiles.value) {
+  if (hasActiveFiles(files)) {
+    schedulePolling()
+    return
+  }
+
+  stopPolling()
 }
 
 async function uploadSelectedFiles() {
@@ -114,6 +173,7 @@ async function removeFile(file) {
 }
 
 onMounted(loadFiles)
+onBeforeUnmount(stopPolling)
 </script>
 
 <template>
