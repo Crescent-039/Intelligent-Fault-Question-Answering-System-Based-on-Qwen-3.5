@@ -26,6 +26,11 @@ const activeRequestId = ref(null)
 const errorText = ref('')
 const scrollArea = ref(null)
 const streamingSessionId = ref(null)
+const citationDialogVisible = ref(false)
+const citationLoading = ref(false)
+const citationError = ref('')
+const citationDetail = ref(null)
+const pendingCitationRequestId = ref(null)
 
 const sessions = computed(() => appState.chatSessions)
 const currentSession = computed(() => getActiveChatSession())
@@ -38,11 +43,56 @@ const renderMessages = computed(() => messages.value.map((message) => ({
 
 let client
 
+function parseAnswerSegments(answerContent) {
+  const content = answerContent || ''
+  const regex = /\[r(\d+)\]/g
+  const segments = []
+  let lastIndex = 0
+  let match
+
+  while ((match = regex.exec(content)) !== null) {
+    const [token, chunkUidText] = match
+    const matchIndex = match.index
+
+    if (matchIndex > lastIndex) {
+      segments.push({
+        type: 'text',
+        text: content.slice(lastIndex, matchIndex),
+      })
+    }
+
+    segments.push({
+      type: 'citation',
+      token,
+      chunkUid: Number(chunkUidText),
+    })
+
+    lastIndex = matchIndex + token.length
+  }
+
+  if (lastIndex < content.length) {
+    segments.push({
+      type: 'text',
+      text: content.slice(lastIndex),
+    })
+  }
+
+  if (!segments.length) {
+    segments.push({
+      type: 'text',
+      text: content,
+    })
+  }
+
+  return segments
+}
+
 function parseMessageContent(message) {
   if (message.role !== 'assistant') {
     return {
       thinkingContent: '',
       answerContent: message.content || '',
+      answerSegments: parseAnswerSegments(message.content || ''),
     }
   }
 
@@ -52,9 +102,11 @@ function parseMessageContent(message) {
   const thinkingStartIndex = rawContent.indexOf(thinkingStartToken)
 
   if (thinkingStartIndex === -1) {
+    const answerContent = rawContent
     return {
       thinkingContent: '',
-      answerContent: rawContent,
+      answerContent,
+      answerSegments: parseAnswerSegments(answerContent),
     }
   }
 
@@ -62,15 +114,43 @@ function parseMessageContent(message) {
   const answerBeforeThinking = rawContent.slice(0, thinkingStartIndex)
 
   if (thinkingEndIndex === -1) {
+    const answerContent = answerBeforeThinking.trimEnd()
     return {
       thinkingContent: rawContent.slice(thinkingStartIndex + thinkingStartToken.length).trimStart(),
-      answerContent: answerBeforeThinking.trimEnd(),
+      answerContent,
+      answerSegments: parseAnswerSegments(answerContent),
     }
   }
 
+  const answerContent = `${answerBeforeThinking}${rawContent.slice(thinkingEndToken.length + thinkingEndIndex)}`.trim()
+
   return {
     thinkingContent: rawContent.slice(thinkingStartIndex + thinkingStartToken.length, thinkingEndIndex).trim(),
-    answerContent: `${answerBeforeThinking}${rawContent.slice(thinkingEndIndex + thinkingEndToken.length)}`.trim(),
+    answerContent,
+    answerSegments: parseAnswerSegments(answerContent),
+  }
+}
+
+function closeCitationDialog() {
+  citationDialogVisible.value = false
+  citationLoading.value = false
+  citationError.value = ''
+  citationDetail.value = null
+  pendingCitationRequestId.value = null
+}
+
+function openCitationDetail(chunkUid) {
+  citationDialogVisible.value = true
+  citationLoading.value = true
+  citationError.value = ''
+  citationDetail.value = null
+
+  try {
+    pendingCitationRequestId.value = client.requestCitationDetail(chunkUid)
+  } catch (error) {
+    citationLoading.value = false
+    citationError.value = error.message || '引用详情加载失败'
+    pendingCitationRequestId.value = null
   }
 }
 
@@ -117,7 +197,20 @@ function initClient() {
         }
         streamingSessionId.value = null
       },
+      onCitationDetail: ({ requestId, payload }) => {
+        if (requestId !== pendingCitationRequestId.value) return
+        citationLoading.value = false
+        citationError.value = ''
+        citationDetail.value = payload
+        pendingCitationRequestId.value = null
+      },
       onError: (error) => {
+        if (error.requestId && error.requestId === pendingCitationRequestId.value) {
+          citationLoading.value = false
+          citationError.value = error.message || '引用详情加载失败'
+          pendingCitationRequestId.value = null
+          return
+        }
         connectionStatus.value = 'error'
         errorText.value = error.message || '对话请求失败'
         generating.value = false
@@ -287,7 +380,17 @@ onBeforeUnmount(() => client?.close())
                 </details>
 
                 <div v-if="message.parsed.answerContent" class="answer-content">
-                  {{ message.parsed.answerContent }}
+                  <template v-for="(segment, segmentIndex) in message.parsed.answerSegments" :key="`${index}-${segmentIndex}`">
+                    <span v-if="segment.type === 'text'">{{ segment.text }}</span>
+                    <button
+                      v-else
+                      class="citation-chip"
+                      :disabled="message.streaming"
+                      @click="openCitationDetail(segment.chunkUid)"
+                    >
+                      {{ segment.token }}
+                    </button>
+                  </template>
                   <span v-if="message.streaming" class="cursor"></span>
                 </div>
 
@@ -310,7 +413,84 @@ onBeforeUnmount(() => client?.close())
           <button v-if="!generating" class="composer-send" :disabled="!input.trim()" @click="sendMessage">发送</button>
           <button v-else class="composer-send stop" @click="stopGeneration">停止</button>
         </div>
+
+        <div v-if="citationDialogVisible" class="citation-dialog-backdrop" @click.self="closeCitationDialog">
+          <div class="citation-dialog">
+            <div class="panel-header compact citation-dialog-header">
+              <div>
+                <p class="eyebrow">Citation Detail</p>
+                <h3>引用详情</h3>
+              </div>
+              <button class="ghost-btn small" @click="closeCitationDialog">关闭</button>
+            </div>
+
+            <div v-if="citationLoading" class="typing">正在加载引用内容...</div>
+            <p v-else-if="citationError" class="notice error">{{ citationError }}</p>
+            <div v-else-if="citationDetail" class="citation-detail-body">
+              <p class="muted">chunk_uid：{{ citationDetail.chunk_uid }}</p>
+              <p class="muted" v-if="citationDetail.source">来源：{{ citationDetail.source }}</p>
+              <p class="muted" v-if="citationDetail.doc_id">doc_id：{{ citationDetail.doc_id }}</p>
+              <div class="citation-detail-text">{{ citationDetail.text }}</div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </section>
 </template>
+
+<style scoped>
+.citation-chip {
+  margin: 0 0.2rem;
+  padding: 0.08rem 0.45rem;
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  border-radius: 999px;
+  background: rgba(59, 130, 246, 0.12);
+  color: #2563eb;
+  cursor: pointer;
+  font: inherit;
+}
+
+.citation-chip:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.citation-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 23, 42, 0.35);
+  z-index: 1000;
+}
+
+.citation-dialog {
+  width: min(640px, calc(100vw - 32px));
+  max-height: min(70vh, 720px);
+  overflow: auto;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 20px 60px rgba(15, 23, 42, 0.22);
+  padding: 1rem;
+}
+
+.citation-dialog-header {
+  margin-bottom: 0.75rem;
+}
+
+.citation-detail-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.citation-detail-text {
+  white-space: pre-wrap;
+  line-height: 1.7;
+  padding: 0.9rem 1rem;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+</style>

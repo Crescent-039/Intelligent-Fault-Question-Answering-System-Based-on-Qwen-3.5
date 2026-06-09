@@ -90,6 +90,23 @@ export class ChatStreamClient {
     this.socket.send(JSON.stringify({ request_id: requestId, type: 'cancel' }))
   }
 
+  requestCitationDetail(chunkUid) {
+    if (!this.isOpen()) {
+      this.connect()
+      throw new Error('WebSocket 尚未连接，请稍后重试')
+    }
+
+    const requestId = createRequestId()
+    this.socket.send(JSON.stringify({
+      request_id: requestId,
+      type: 'citation_detail',
+      payload: {
+        chunk_uid: Number(chunkUid),
+      },
+    }))
+    return requestId
+  }
+
   ping() {
     if (!this.isOpen()) return
     this.socket.send(JSON.stringify({
@@ -144,6 +161,7 @@ export class ChatStreamClient {
       if (requestId === this.activeRequestId) this.activeRequestId = null
       this.handlers.onError?.({ requestId, ...payload })
     }
+    if (type === 'citation_detail_result') this.handlers.onCitationDetail?.({ requestId, payload })
     if (type === 'pong') this.handlers.onPong?.({ requestId, payload })
   }
 }
