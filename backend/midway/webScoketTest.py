@@ -2,7 +2,7 @@ import asyncio
 import json
 import time
 from pathlib import Path
-from threading import Thread
+from threading import Thread, Event
 
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -52,6 +52,29 @@ async def startup_event():
 @app.get("/api/config/frontend")
 async def get_frontend_config():
     return FRONTEND_CONFIG
+
+
+# 停止事件
+async def listen_stop_message(websocket: WebSocket, request_id: str, stop_event: Event):
+    while not stop_event.is_set():
+        try:
+            raw = await websocket.receive_text()
+            data = json.loads(raw)
+            msg_type = data.get("type")
+            msg_request_id = data.get("request_id")
+            if msg_request_id != request_id:
+                continue
+            if msg_type in ["cancel"]:
+                print(f"收到停止消息: {msg_type}")
+                stop_event.set()
+                break
+        except WebSocketDisconnect:
+            stop_event.set()
+            break
+        except Exception as e:
+            print("监听停止消息异常:", e)
+            stop_event.set()
+            break
 
 
 def parse_chat_payload(data):
@@ -159,114 +182,130 @@ async def websocket_endpoint(websocket: WebSocket):
                 }, ensure_ascii=False))
                 continue
 
-            if msg_type != "chat":
+            if msg_type == "chat":
+                # =========================
+                # 1. 解析前端参数
+                # =========================
+                params = parse_chat_payload(data)
+
+                messages = params["messages"]
+                file_ids = params["file_ids"]
+                rag_enabled = params["rag_enabled"]
+                rag_top_k = params["rag_top_k"]
+                temperature = params["temperature"]
+                max_tokens = params["max_tokens"]
+                enable_thinking = params["enable_thinking"]
+
+                # =========================
+                # 2. 通知前端：开始流式输出
+                # =========================
                 await websocket.send_text(json.dumps({
                     "request_id": request_id,
-                    "type": "error",
+                    "type": "stream_start",
                     "payload": {
-                        "code": "INVALID_MESSAGE",
-                        "message": f"不支持的消息类型: {msg_type}"
+                        "created_at": int(time.time())
                     }
                 }, ensure_ascii=False))
-                continue
 
-            # =========================
-            # 1. 解析前端参数
-            # =========================
-            params = parse_chat_payload(data)
-
-            messages = params["messages"]
-            file_ids = params["file_ids"]
-            rag_enabled = params["rag_enabled"]
-            rag_top_k = params["rag_top_k"]
-            temperature = params["temperature"]
-            max_tokens = params["max_tokens"]
-            enable_thinking = params["enable_thinking"]
-
-            # =========================
-            # 2. 通知前端：开始流式输出
-            # =========================
-            await websocket.send_text(json.dumps({
-                "request_id": request_id,
-                "type": "stream_start",
-                "payload": {
-                    "created_at": int(time.time())
-                }
-            }, ensure_ascii=False))
-
-            completion_tokens = 0
-
-            try:
-                # =========================
-                # 3. 调用本地模型 send(...)
-                # =========================
-                sync_generator = rag_service.send(
-                    messages=messages,
-                    file_ids=file_ids,
-                    rag_top_k=rag_top_k,
-                    tem=temperature,
-                    max_tokens=max_tokens,
-                    thinking=enable_thinking,
-                    rag_enabled=rag_enabled
+                completion_tokens = 0
+                # 创建停止事件
+                stop_event = Event()
+                stop_task = asyncio.create_task(
+                    listen_stop_message(websocket, request_id, stop_event)
                 )
 
-                # =========================
-                # 4. 把模型输出逐段发给前端
-                # =========================
-                async for delta in async_wrap_sync_generator(sync_generator):
-                    if not delta:
-                        continue
+                try:
+                    # =========================
+                    # 3. 调用本地模型 send(...)
+                    # =========================
+                    sync_generator = rag_service.send(
+                        messages=messages,
+                        file_ids=file_ids,
+                        rag_top_k=rag_top_k,
+                        tem=temperature,
+                        max_tokens=max_tokens,
+                        thinking=enable_thinking,
+                        rag_enabled=rag_enabled,
+                        stop_event=stop_event
+                    )
 
-                    completion_tokens += len(delta)
+                    # =========================
+                    # 4. 把模型输出逐段发给前端
+                    # =========================
+                    async for delta in async_wrap_sync_generator(sync_generator):
+                        # 流发送前判断一下
+                        if stop_event.is_set():
+                            break
+                        if not delta:
+                            continue
 
+                        completion_tokens += len(delta)
+
+                        await websocket.send_text(json.dumps({
+                            "request_id": request_id,
+                            "type": "stream_chunk",
+                            "payload": {
+                                "delta": delta
+                            }
+                        }, ensure_ascii=False))
+
+                    finish_reason = "cancelled" if stop_event.is_set() else "stop"
+                    # =========================
+                    # 5. 通知前端：正常结束
+                    # =========================
                     await websocket.send_text(json.dumps({
                         "request_id": request_id,
-                        "type": "stream_chunk",
+                        "type": "stream_end",
                         "payload": {
-                            "delta": delta
+                            "finish_reason": finish_reason,
+                            "usage": {
+                                "prompt_tokens": 0,
+                                "completion_tokens": completion_tokens,
+                                "total_tokens": completion_tokens,
+                            }
                         }
                     }, ensure_ascii=False))
 
-                # =========================
-                # 5. 通知前端：正常结束
-                # =========================
-                await websocket.send_text(json.dumps({
-                    "request_id": request_id,
-                    "type": "stream_end",
-                    "payload": {
-                        "finish_reason": "stop",
-                        "usage": {
-                            "prompt_tokens": 0,
-                            "completion_tokens": completion_tokens,
-                            "total_tokens": completion_tokens,
+                except Exception as e:
+                    print("模型生成失败:", e)
+
+                    await websocket.send_text(json.dumps({
+                        "request_id": request_id,
+                        "type": "error",
+                        "payload": {
+                            "code": "MODEL_GENERATION_ERROR",
+                            "message": str(e)
                         }
-                    }
-                }, ensure_ascii=False))
+                    }, ensure_ascii=False))
 
-            except Exception as e:
-                print("模型生成失败:", e)
-
-                await websocket.send_text(json.dumps({
-                    "request_id": request_id,
-                    "type": "error",
-                    "payload": {
-                        "code": "MODEL_GENERATION_ERROR",
-                        "message": str(e)
-                    }
-                }, ensure_ascii=False))
-
-                await websocket.send_text(json.dumps({
-                    "request_id": request_id,
-                    "type": "stream_end",
-                    "payload": {
-                        "finish_reason": "error",
-                        "usage": {
-                            "prompt_tokens": 0,
-                            "completion_tokens": completion_tokens,
-                            "total_tokens": completion_tokens,
+                    await websocket.send_text(json.dumps({
+                        "request_id": request_id,
+                        "type": "stream_end",
+                        "payload": {
+                            "finish_reason": "error",
+                            "usage": {
+                                "prompt_tokens": 0,
+                                "completion_tokens": completion_tokens,
+                                "total_tokens": completion_tokens,
+                            }
                         }
-                    }
-                }, ensure_ascii=False))
+                    }, ensure_ascii=False))
+
+                finally:
+                    stop_event.set()
+                    stop_task.cancel()
+
+                continue
+
+            # 其他消息类型暂时先不报错，预留给文件上传等功能
+            await websocket.send_text(json.dumps({
+                "request_id": request_id,
+                "type": "ack",
+                "payload": {
+                    "message": f"已收到消息类型: {msg_type}，当前暂未处理。"
+                }
+            }, ensure_ascii=False))
+            continue
 
     except WebSocketDisconnect:
         print("Web 客户端已断开连接。")

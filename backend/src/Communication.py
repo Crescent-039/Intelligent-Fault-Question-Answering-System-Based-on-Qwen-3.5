@@ -64,7 +64,7 @@ class RagChatService:
             if item.get("doc_id") in file_ids
         ]
 
-    def send(self, messages, file_ids=None, rag_top_k=10, tem=0.3, max_tokens=2048, thinking=True, rag_enabled=True):
+    def send(self, messages, file_ids=None, rag_top_k=10, tem=0.3, max_tokens=2048, thinking=True, rag_enabled=True, stop_event=None):
         file_ids = file_ids or []
         query = self.get_last_user_message(messages)
         system_prompt = self.get_system_message(messages)
@@ -94,8 +94,11 @@ class RagChatService:
                 system_prompt=system_prompt,
                 temperature=tem,
                 max_tokens=max_tokens,
-                enable_thinking=thinking
+                enable_thinking=thinking,
+                stop_event=stop_event
         ):
+            if stop_event is not None and stop_event.is_set():
+                break
             yield new_text
 
 

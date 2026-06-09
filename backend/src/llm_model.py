@@ -1,6 +1,8 @@
 import torch
-from threading import Thread
-from transformers import AutoTokenizer, AutoModelForCausalLM, TextIteratorStreamer
+from threading import Thread, Event
+from transformers import AutoTokenizer, AutoModelForCausalLM, TextIteratorStreamer, \
+    StoppingCriteria, StoppingCriteriaList
+
 
 from config import (
     LLM_MODEL_PATH,
@@ -8,6 +10,15 @@ from config import (
     TEMPERATURE,
     TOP_P
 )
+
+
+# 接收到前端停止信号后的停止事件
+class StopOnEvent(StoppingCriteria):
+    def __init__(self, stop_event: Event):
+        self.stop_event = stop_event
+
+    def __call__(self, input_ids, scores, **kwargs):
+        return self.stop_event.is_set()
 
 
 class LLMModel:
@@ -92,7 +103,16 @@ class LLMModel:
         response = self.tokenizer.decode(generated_ids, skip_special_tokens=True)
         return response
 
-    def stream_chat(self, query, context, system_prompt=None, temperature=0.3, max_tokens=512, enable_thinking=False):
+    def stream_chat(
+            self,
+            query,
+            context,
+            system_prompt=None,
+            temperature=0.3,
+            max_tokens=512,
+            enable_thinking=False,
+            stop_event=None
+    ):
         """
         流式输出：返回一个生成器。
         使用方式：
@@ -148,6 +168,9 @@ class LLMModel:
             pad_token_id=self.tokenizer.eos_token_id,
             eos_token_id=self.tokenizer.eos_token_id
         )
+        if stop_event is not None:
+            generation_kwargs["stopping_criteria"] = StoppingCriteriaList([StopOnEvent(stop_event)])
+
         thread = Thread(
             target=self.model.generate,
             kwargs=generation_kwargs
