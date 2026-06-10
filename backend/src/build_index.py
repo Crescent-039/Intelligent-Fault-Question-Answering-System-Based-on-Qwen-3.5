@@ -1,115 +1,150 @@
 import faiss
+import os
+import uuid
+from pathlib import Path
 
 from config import (
-    DOCS_DIR,
-    DATA_DIR,
-    FAISS_INDEX_PATH,
-    CHUNKS_PATH,
+    CHUNKS_DIR,
+    INDEXES_DIR,
+    FILES_MANIFEST_PATH,
     CHUNK_SIZE,
     CHUNK_OVERLAP
 )
-from utils import ensure_dir, clean_text, chunk_text_by_sentences, save_json
-from document_loader import load_all_documents
+from utils import ensure_dir, clean_text, chunk_text_by_sentences, save_json, load_json
+from document_loader import scan_documents, parse_document
 from embedding_model import EmbeddingModel
 
 
-def build_faiss_index(embeddings):
-    """
-    构建 FAISS 索引。
-    因为 embedding 已经做过 L2 normalize，
-    所以 IndexFlatIP 的内积可以等价用于余弦相似度。
-    """
-    dim = embeddings.shape[1]
-    index = faiss.IndexFlatIP(dim)
-    index.add(embeddings)
-    return index
+class Builder:
+    def __init__(self, embedder):
+        self.embedder = embedder
+        ensure_dir(CHUNKS_DIR)
+        ensure_dir(INDEXES_DIR)
 
-
-def build_chunk_records(documents):
-    """
-    将多个文档切成 chunks，并保留来源信息。
-    """
-    chunk_records = []
-    global_chunk_id = 0
-
-    for doc_id, doc in enumerate(documents):
-        source = doc["source"]
-        extension = doc["extension"]
-
-        print(f"\n正在切分文档: {source}")
-
-        cleaned_text = clean_text(doc["text"])
-
-        chunks = chunk_text_by_sentences(
-            cleaned_text,
-            chunk_size=CHUNK_SIZE
-        )
-
-        print(f"该文档切分出 {len(chunks)} 个 chunks")
-
+    def build_file_index(self, file_id, file_path):
+        document = parse_document(file_path)
+        cleaned_text = clean_text(document["text"])
+        chunks = chunk_text_by_sentences(cleaned_text, chunk_size=CHUNK_SIZE, overlap_sentences=CHUNK_OVERLAP)
+        if not chunks:
+            raise ValueError("没有生成任何 chunk，程序结束。")
+        manifest = self.load_manifest()
+        start_global_id = manifest.get("_meta", {}).get("next_global_chunk_id", 0)
+        chunk_records = []
+        current_global_id = start_global_id
         for local_chunk_id, chunk in enumerate(chunks):
             chunk_records.append({
-                "id": global_chunk_id,
-                "doc_id": doc_id,
+                "id": current_global_id,
+                "Anchor": [f"r{current_global_id}"],
+                "file_id": file_id,
                 "local_chunk_id": local_chunk_id,
                 "text": chunk,
-                "source": source,
-                "extension": extension
+                "source": file_path,
+                "extension": document.get("extension", "")
             })
+            current_global_id += 1
+        texts = [item["text"] for item in chunk_records]
+        embeddings = self.embedder.encode(texts)
+        index = faiss.IndexFlatIP(embeddings.shape[1])
+        index.add(embeddings)
+        chunks_path = self.get_chunks_path(file_id)
+        index_path = self.get_index_path(file_id)
+        save_json(chunk_records, chunks_path)
+        faiss.write_index(index, index_path)
+        self.update_manifest(
+            manifest=manifest,
+            file_id=file_id,
+            file_path=file_path,
+            chunks_path=chunks_path,
+            index_path=index_path,
+            chunk_count=len(chunk_records),
+            start_global_id=start_global_id,
+            end_global_id=current_global_id - 1,
+            next_global_chunk_id=current_global_id
+        )
+        return {
+            "file_id": file_id,
+            "chunk_count": len(chunk_records),
+            "start_global_id": start_global_id,
+            "end_global_id": current_global_id - 1,
+            "chunks_path": chunks_path,
+            "index_path": index_path,
+            "status": "indexed"
+        }
 
-            global_chunk_id += 1
+    def build_path_index(self, path):
+        print(path, "!!!!!")
+        path = Path(path).resolve()
+        if not path.exists():
+            raise FileNotFoundError(f"路径不存在: {path}")
+        if path.is_file():
+            file_id = str(uuid.uuid4())
+            return {
+                "type": "file",
+                "results": [
+                    self.build_file_index(
+                        file_id=file_id,
+                        file_path=str(path)
+                    )
+                ]
+            }
+        if path.is_dir():
+            file_paths = scan_documents(str(path), recursive=True)
+            if not file_paths:
+                raise ValueError(f"目录下没有支持的文档: {path}")
+            results = []
+            for file_path in file_paths:
+                file_id = str(uuid.uuid4())
+                result = self.build_file_index(
+                    file_id=file_id,
+                    file_path=file_path
+                )
+                results.append(result)
+            return {
+                "type": "directory",
+                "file_count": len(results),
+                "results": results
+            }
+        raise ValueError(f"不支持的路径类型: {path}")
 
-    return chunk_records
+    def get_chunks_path(self, file_id):
+        return os.path.join(CHUNKS_DIR, f"{file_id}.json")
 
+    def get_index_path(self, file_id):
+        return os.path.join(INDEXES_DIR, f"{file_id}.index")
 
-def main():
-    print("===== 开始构建多文档索引 =====")
+    def load_manifest(self):
+        if os.path.exists(FILES_MANIFEST_PATH):
+            return load_json(FILES_MANIFEST_PATH)
+        return {
+            "_meta": {
+                "next_global_chunk_id": 0
+            }
+        }
 
-    ensure_dir(DATA_DIR)
+    def update_manifest(
+        self,
+        manifest,
+        file_id,
+        file_path,
+        chunks_path,
+        index_path,
+        chunk_count,
+        start_global_id,
+        end_global_id,
+        next_global_chunk_id
+    ):
+        manifest[file_id] = {
+            "file_id": file_id,
+            "file_path": file_path,
+            "chunks_path": chunks_path,
+            "index_path": index_path,
+            "chunk_count": chunk_count,
+            "start_global_id": start_global_id,
+            "end_global_id": end_global_id
+        }
+        manifest["_meta"] = {
+            "next_global_chunk_id": next_global_chunk_id
+        }
+        save_json(manifest, FILES_MANIFEST_PATH)
 
-    # 1. 加载 docs 目录下所有文档
-    documents = load_all_documents(DOCS_DIR)
-
-    if not documents:
-        print("没有成功解析出任何文档，程序结束。")
-        return
-
-    print(f"\n成功解析文档数量: {len(documents)}")
-
-    # 2. 文档切块
-    chunk_records = build_chunk_records(documents)
-
-    if not chunk_records:
-        print("没有生成任何 chunk，程序结束。")
-        return
-
-    print(f"\n总 chunk 数量: {len(chunk_records)}")
-
-    # 3. 加载 embedding 模型
-    embedder = EmbeddingModel()
-
-    # 4. 生成 embeddings
-    texts = [item["text"] for item in chunk_records]
-
-    print("\n开始生成 embeddings ...")
-    embeddings = embedder.encode(texts)
-    print("embeddings shape:", embeddings.shape)
-
-    # 5. 建立 FAISS 索引
-    print("\n开始构建 FAISS 索引 ...")
-    index = build_faiss_index(embeddings)
-
-    # 6. 保存 FAISS 索引
-    faiss.write_index(index, FAISS_INDEX_PATH)
-    print(f"FAISS 索引已保存: {FAISS_INDEX_PATH}")
-
-    # 7. 保存 chunks 元数据
-    save_json(chunk_records, CHUNKS_PATH)
-    print(f"Chunks 信息已保存: {CHUNKS_PATH}")
-
-    print("===== 多文档索引构建完成 =====")
-
-
-if __name__ == "__main__":
-    main()
 

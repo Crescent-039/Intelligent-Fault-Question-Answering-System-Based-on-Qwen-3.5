@@ -1,34 +1,47 @@
-import faiss
-from config import CHUNKS_PATH, FAISS_INDEX_PATH
-from utils import load_json
 from embedding_model import EmbeddingModel
 from llm_model import LLMModel
-from chat_with_doc import retrieve, build_context
+from chat_with_doc import retrieve_by_file_ids, build_context, resolve_citations
+from build_index import Builder
 import sys
+from threading import Lock
 sys.path.append("..")
 
 
 class RagChatService:
     def __init__(self):
-        self.chunk_records = None
-        self.index = None
         self.embedder = None
         self.llm = None
         self.ready = False
+        self.index_builder = None
+        self.model_lock = Lock()
+        self.init_rag_service()
 
-    def init_rag_service(self):
-        self.chunk_records = load_json(CHUNKS_PATH)
-        self.index = faiss.read_index(FAISS_INDEX_PATH)
-        self.embedder = EmbeddingModel(device="cpu")
-        self.llm = LLMModel()
-        self.warmup_llm()
+    def init_rag_service(self, load_llm=True, warmup=True):
+        if not load_llm:
+            self.embedder = EmbeddingModel(device="cuda")
+        else:
+            self.embedder = EmbeddingModel(device="cpu")
+
+        self.index_builder = Builder(embedder=self.embedder)
+        if load_llm:
+            self.llm = LLMModel(device="cuda")
+            if warmup:
+                self.warmup_llm()
         self.ready = True
 
+    def add_file_to_index(self, file_id, file_path):
+        return self.index_builder.build_file_index(
+            file_id=file_id,
+            file_path=file_path
+        )
+
+    def add_path_to_index(self, path):
+        return self.index_builder.build_path_index(path)
+
     def warmup_llm(self):
+        if self.llm is None:
+            return
         print("[LLM] 正在 warmup...")
-        messages = [
-            {"role": "user", "content": "你好"}
-        ]
         for _ in self.llm.stream_chat(
                 query="你好",
                 context="",
@@ -52,17 +65,8 @@ class RagChatService:
                 return msg.get("content", "")
         return ""
 
-    def filter_chunks_by_file_ids(self, chunk_record, file_ids):
-        """
-        根据 file_ids 过滤 chunks。
-        要求 chunks.json 里有 file_id 字段。
-        """
-        if not file_ids:
-            return chunk_record
-        return [
-            item for item in chunk_record
-            if item.get("doc_id") in file_ids
-        ]
+    def get_citation_details(self, chunk_uids):
+        return resolve_citations(chunk_uids)
 
     def send(self, messages, file_ids=None, rag_top_k=10, tem=0.3, max_tokens=2048, thinking=True, rag_enabled=True, stop_event=None):
         file_ids = file_ids or []
@@ -71,19 +75,14 @@ class RagChatService:
 
         if not self.ready:
             raise RuntimeError("RAG 服务尚未初始化")
+        if self.llm is None:
+            raise RuntimeError("LLM 尚未初始化，无法执行问答")
         context = ""
         if rag_enabled:
-            # 如果有 file_ids，先过滤 chunk_records
-            # 如果你当前 chunks.json 里没有 file_id 字段，可以先注释掉这一行
-            filtered_chunk_records = self.filter_chunks_by_file_ids(self.chunk_records, file_ids)
-            # 如果没有过滤结果，就退回全部文档
-            if not filtered_chunk_records:
-                filtered_chunk_records = self.chunk_records
-            results = retrieve(
+            results = retrieve_by_file_ids(
                 query=query,
                 embedder=self.embedder,
-                index=self.index,
-                chunk_records=filtered_chunk_records,
+                file_ids=file_ids,
                 top_k=rag_top_k
             )
             context = build_context(results)
@@ -103,6 +102,8 @@ class RagChatService:
 
 
 if __name__ == "__main__":
+    service = RagChatService()
+    service.init_rag_service()
 
     # 假设前端传这些
     _messages = [
@@ -112,7 +113,7 @@ if __name__ == "__main__":
         {"role": "user", "content": "重点说一下第三章"}
     ]
 
-    for text in RagChatService.send(
+    for text in service.send(
             messages=_messages,
             file_ids=["uuid-1", "uuid-2"],
             rag_top_k=5,

@@ -192,7 +192,7 @@ def parse_document(file_path):
         text = parse_txt(file_path)
     elif ext == ".pdf":
         text = parse_pdf(file_path)
-    elif ext == ".docx":
+    elif ext in [".docx", ".doc"]:
         text = parse_docx(file_path)
     elif ext == ".csv":
         text = parse_csv(file_path)
@@ -200,9 +200,10 @@ def parse_document(file_path):
         text = parse_excel(file_path)
     elif ext in [".html", ".htm"]:
         text = parse_html(file_path)
-    elif ext == ".pptx":
+    elif ext in [".pptx", ".ppt"]:
         text = parse_pptx(file_path)
     else:
+        print(ext, "!!!!")
         raise ValueError(f"不支持的文件类型: {ext}")
     return {
         "source": file_path,

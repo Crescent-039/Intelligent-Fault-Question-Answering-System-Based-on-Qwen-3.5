@@ -5,7 +5,7 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # 模型路径
 LLM_MODEL_PATH = os.path.join(BASE_DIR, "Qwen3.5-4B")
-EMBED_MODEL_PATH = os.path.join(BASE_DIR, "Qwen3-Embedding-4B")
+EMBED_MODEL_PATH = os.path.join(BASE_DIR, "Qwen3-embedding-4B")
 
 # 文档路径
 DOCS_DIR = os.path.join(BASE_DIR, "docs")
@@ -15,12 +15,14 @@ SUPPORTED_EXTENSIONS = {
     ".txt",
     ".md",
     ".pdf",
+    ".doc",
     ".docx",
     ".csv",
     ".xlsx",
     ".xls",
     ".html",
     ".htm",
+    ".ppt",
     ".pptx"
 }
 # 是否递归扫描 docs 子目录
@@ -30,6 +32,11 @@ RECURSIVE_SCAN = True
 DATA_DIR = os.path.join(BASE_DIR, "data")
 FAISS_INDEX_PATH = os.path.join(DATA_DIR, "faiss.index")
 CHUNKS_PATH = os.path.join(DATA_DIR, "chunks.json")
+
+# 数据保存路径
+CHUNKS_DIR = os.path.join(DATA_DIR, "chunks")
+INDEXES_DIR = os.path.join(DATA_DIR, "indexes")
+FILES_MANIFEST_PATH = os.path.join(DATA_DIR, "files_manifest.json")
 
 # 切块参数
 CHUNK_SIZE = 200

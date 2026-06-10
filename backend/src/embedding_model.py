@@ -25,6 +25,12 @@ class EmbeddingModel:
         self.model.eval()
         print("[Embedding] 模型加载完成")
 
+    def to_device(self, device):
+        self.device = torch.device(device)
+        self.model.to(self.device)
+        self.model.eval()
+        return self
+
     @staticmethod
     def mean_pooling(last_hidden_state, attention_mask):
         mask = attention_mask.unsqueeze(-1).expand(last_hidden_state.size()).float()
