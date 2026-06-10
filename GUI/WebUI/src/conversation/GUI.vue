@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import {
   DEFAULT_CLEARED_MESSAGE,
+  DEFAULT_WELCOME_MESSAGE,
   ChatStreamClient,
   buildChatMessages,
   createDefaultWsUrl,
@@ -158,6 +159,94 @@ function scrollToBottom() {
   nextTick(() => {
     if (scrollArea.value) scrollArea.value.scrollTop = scrollArea.value.scrollHeight
   })
+}
+
+function getLatestRound() {
+  const sessionMessages = currentSession.value?.messages || []
+  const assistantIndex = sessionMessages.length - 1
+  const userIndex = assistantIndex - 1
+
+  if (assistantIndex < 1) return null
+
+  const assistantMessage = sessionMessages[assistantIndex]
+  const userMessage = sessionMessages[userIndex]
+
+  if (assistantMessage?.role !== 'assistant' || userMessage?.role !== 'user') return null
+  if (assistantMessage.content === DEFAULT_WELCOME_MESSAGE) return null
+
+  return {
+    assistantIndex,
+    assistantMessage,
+    userMessage,
+  }
+}
+
+function shouldShowMessageActions(message, index) {
+  if (generating.value || message.role !== 'assistant' || message.streaming) return false
+  if (message.content === DEFAULT_WELCOME_MESSAGE) return false
+  if (index !== renderMessages.value.length - 1) return false
+  return renderMessages.value[index - 1]?.role === 'user'
+}
+
+async function copyAnswerContent(message) {
+  const text = message.parsed.answerContent?.trim()
+  if (!text) return
+
+  try {
+    await navigator.clipboard.writeText(text)
+    errorText.value = ''
+  } catch (error) {
+    errorText.value = error.message || '复制失败'
+  }
+}
+
+function retryLastRound() {
+  if (generating.value || !currentSession.value) return
+
+  const latestRound = getLatestRound()
+  if (!latestRound) return
+
+  errorText.value = ''
+  const sessionId = currentSession.value.id
+  const requestMessages = currentSession.value.messages.filter((message, index) => index !== latestRound.assistantIndex && !message.streaming)
+
+  removeLastSessionMessage(sessionId)
+  pushSessionMessage(sessionId, { role: 'assistant', content: '', streaming: true })
+  streamingSessionId.value = sessionId
+  scrollToBottom()
+
+  try {
+    activeRequestId.value = client.sendChat({
+      messages: buildChatMessages(requestMessages, chatSettings.value.systemPrompt),
+      fileIds: currentSession.value.fileIds || [],
+      rag: {
+        enabled: chatSettings.value.ragEnabled,
+        top_k: Number(chatSettings.value.topK),
+      },
+      modelConfig: {
+        temperature: Number(chatSettings.value.temperature),
+        max_tokens: Number(chatSettings.value.maxTokens),
+        enable_thinking: Boolean(chatSettings.value.enableThinking),
+      },
+    })
+    generating.value = true
+  } catch (error) {
+    errorText.value = error.message
+    removeLastSessionMessage(sessionId)
+    streamingSessionId.value = null
+  }
+}
+
+function deleteLastRound() {
+  if (generating.value || !currentSession.value) return
+
+  const latestRound = getLatestRound()
+  if (!latestRound) return
+
+  const sessionId = currentSession.value.id
+  removeLastSessionMessage(sessionId)
+  removeLastSessionMessage(sessionId)
+  errorText.value = ''
 }
 
 function ensureAssistantMessage() {
@@ -397,6 +486,12 @@ onBeforeUnmount(() => client?.close())
                 <div v-else-if="message.streaming" class="typing">正在思考...</div>
               </div>
             </div>
+
+            <div v-if="shouldShowMessageActions(message, index)" class="message-actions">
+              <button class="ghost-btn small" @click="copyAnswerContent(message)">复制</button>
+              <button class="ghost-btn small" @click="retryLastRound">重试</button>
+              <button class="danger-btn small" @click="deleteLastRound">删除</button>
+            </div>
           </article>
         </div>
 
@@ -470,9 +565,12 @@ onBeforeUnmount(() => client?.close())
   width: min(640px, calc(100vw - 32px));
   max-height: min(70vh, 720px);
   overflow: auto;
+  border: 1px solid var(--border);
   border-radius: 16px;
-  background: #fff;
-  box-shadow: 0 20px 60px rgba(15, 23, 42, 0.22);
+  color: var(--text);
+  background: linear-gradient(145deg, rgba(16, 22, 34, 0.96), rgba(10, 15, 25, 0.92));
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(18px);
   padding: 1rem;
 }
 
@@ -486,11 +584,17 @@ onBeforeUnmount(() => client?.close())
   gap: 0.5rem;
 }
 
+.message-actions {
+  display: flex;
+  gap: 8px;
+}
+
 .citation-detail-text {
   white-space: pre-wrap;
   line-height: 1.7;
   padding: 0.9rem 1rem;
   border-radius: 12px;
-  background: #f8fafc;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.055);
 }
 </style>
