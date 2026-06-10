@@ -13,6 +13,7 @@ sys.path.append("../src")
 # 按你的实际路径修改
 # 假设你的 send 函数在 src/rag_chat_service.py
 from src.Communication import RagChatService
+from Communication import RagChatService
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 CONFIG_PATH = ROOT_DIR / "config.json"
@@ -184,25 +185,25 @@ async def websocket_endpoint(websocket: WebSocket):
 
             if msg_type == "citation_detail":
                 chunk_uid = data.get("payload", {}).get("chunk_uid")
-
-                if chunk_uid == 12345:
-                    await websocket.send_text(json.dumps({
-                        "request_id": request_id,
-                        "type": "citation_detail_result",
-                        "payload": {
-                            "chunk_uid": 12345,
-                            "source": "test-manual.pdf",
-                            "doc_id": "test-doc-1",
-                            "text": "这是 r12345 对应的测试原文内容。当前阶段该内容由 websocket 后端硬编码返回，仅用于验证前端引用弹窗和交互链路是否正常。"
-                        }
-                    }, ensure_ascii=False))
-                else:
+                result = rag_service.get_citation_details(chunk_uid)
+                if result is None:
                     await websocket.send_text(json.dumps({
                         "request_id": request_id,
                         "type": "error",
                         "payload": {
                             "code": "CITATION_NOT_FOUND",
                             "message": f"未找到 chunk_uid={chunk_uid} 对应的测试引用内容"
+                        }
+                    }, ensure_ascii=False))
+                else:
+                    await websocket.send_text(json.dumps({
+                        "request_id": request_id,
+                        "type": "citation_detail_result",
+                        "payload": {
+                            "chunk_uid": chunk_uid,
+                            "source": result.get("file_name","没找到source或者source不存在"),
+                            "doc_id": result.get("file_id","没找到doc_id或者doc_id不存在"),
+                            "text": result.get("text","没找到text或者text不存在")
                         }
                     }, ensure_ascii=False))
                 continue
@@ -243,56 +244,29 @@ async def websocket_endpoint(websocket: WebSocket):
                     # =========================
                     # 3. 测试阶段：模拟流式输出
                     # =========================
-                    # 真实模型生成逻辑先注释保留，测试完成后可恢复：
-                    # sync_generator = rag_service.send(
-                    #     messages=messages,
-                    #     file_ids=file_ids,
-                    #     rag_top_k=rag_top_k,
-                    #     tem=temperature,
-                    #     max_tokens=max_tokens,
-                    #     thinking=enable_thinking,
-                    #     rag_enabled=rag_enabled,
-                    #     stop_event=stop_event
-                    # )
-
-                    test_deltas = [
-                        "这是一个用于验证引用交互的测试回答。",
-                        "这里插入一个测试引用 ",
-                        "[r12345]",
-                        "，点击后应显示后端返回的测试原文内容。"
-                    ]
+                    sync_generator = rag_service.send(
+                        messages=messages,
+                        file_ids=file_ids,
+                        rag_top_k=rag_top_k,
+                        tem=temperature,
+                        max_tokens=max_tokens,
+                        thinking=enable_thinking,
+                        rag_enabled=rag_enabled,
+                        stop_event=stop_event
+                    )
 
                     # =========================
                     # 4. 把模型输出逐段发给前端
                     # =========================
                     # 真实流式发送逻辑先注释保留，测试完成后可恢复：
-                    # async for delta in async_wrap_sync_generator(sync_generator):
-                    #     if stop_event.is_set():
-                    #         break
-                    #     if not delta:
-                    #         continue
-                    #
-                    #     completion_tokens += len(delta)
-                    #
-                    #     await websocket.send_text(json.dumps({
-                    #         "request_id": request_id,
-                    #         "type": "stream_chunk",
-                    #         "payload": {
-                    #             "delta": delta
-                    #         }
-                    #     }, ensure_ascii=False))
-
-                    for delta in test_deltas:
-                        # 流发送前判断一下
+                    async for delta in async_wrap_sync_generator(sync_generator):
                         if stop_event.is_set():
                             break
                         if not delta:
                             continue
-
+                    
                         completion_tokens += len(delta)
-
-                        await asyncio.sleep(0.2)
-
+                    
                         await websocket.send_text(json.dumps({
                             "request_id": request_id,
                             "type": "stream_chunk",
