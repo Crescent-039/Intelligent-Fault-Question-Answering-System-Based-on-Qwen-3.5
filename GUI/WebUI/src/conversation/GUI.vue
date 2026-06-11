@@ -33,6 +33,9 @@ const citationError = ref('')
 const citationDetail = ref(null)
 const pendingCitationRequestId = ref(null)
 
+const CITATION_FADE_EDGE = 10
+const CITATION_MIN_OPACITY = 0.22
+
 const sessions = computed(() => appState.chatSessions)
 const currentSession = computed(() => getActiveChatSession())
 const messages = computed(() => currentSession.value?.messages || [])
@@ -130,6 +133,34 @@ function parseMessageContent(message) {
     answerContent,
     answerSegments: parseAnswerSegments(answerContent),
   }
+}
+
+function buildCitationFadeChars(text) {
+  const chars = Array.from(text || '')
+  const length = chars.length
+
+  if (!length) return []
+
+  const edge = Math.min(CITATION_FADE_EDGE, Math.ceil(length / 2))
+
+  return chars.map((char, index) => {
+    let opacity = 1
+
+    if (index < edge) {
+      opacity = CITATION_MIN_OPACITY + ((1 - CITATION_MIN_OPACITY) * (index + 1)) / edge
+    }
+
+    if (index >= length - edge) {
+      const tailDistance = length - index
+      const tailOpacity = CITATION_MIN_OPACITY + ((1 - CITATION_MIN_OPACITY) * tailDistance) / edge
+      opacity = Math.min(opacity, tailOpacity)
+    }
+
+    return {
+      char,
+      opacity: Number(opacity.toFixed(3)),
+    }
+  })
 }
 
 function closeCitationDialog() {
@@ -525,7 +556,14 @@ onBeforeUnmount(() => client?.close())
               <p class="muted">chunk_uid：{{ citationDetail.chunk_uid }}</p>
               <p class="muted" v-if="citationDetail.source">来源：{{ citationDetail.source }}</p>
               <p class="muted" v-if="citationDetail.doc_id">doc_id：{{ citationDetail.doc_id }}</p>
-              <div class="citation-detail-text">{{ citationDetail.text }}</div>
+              <div class="citation-detail-text">
+                <span
+                  v-for="(char, charIndex) in buildCitationFadeChars(citationDetail.text)"
+                  :key="`${citationDetail.chunk_uid}-${charIndex}`"
+                  class="citation-detail-char"
+                  :style="{ opacity: char.opacity }"
+                >{{ char.char }}</span>
+              </div>
             </div>
           </div>
         </div>
@@ -596,5 +634,9 @@ onBeforeUnmount(() => client?.close())
   border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.06);
   background: rgba(255, 255, 255, 0.055);
+}
+
+.citation-detail-char {
+  transition: opacity 0.28s ease;
 }
 </style>
