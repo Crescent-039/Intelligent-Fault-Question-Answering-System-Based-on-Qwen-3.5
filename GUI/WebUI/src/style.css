@@ -458,6 +458,28 @@ h3 { margin-bottom: 0; font-size: 17px; }
   padding: 0 8px 16px 0;
 }
 
+.app-shell.mode-upload {
+  height: auto;
+  min-height: 100vh;
+}
+
+.workspace.mode-upload {
+  height: auto;
+  min-height: calc(100vh - 48px);
+}
+
+.workspace.mode-upload .module-panel.upload-panel {
+  overflow: visible;
+}
+
+.workspace.mode-upload .file-library {
+  overflow: visible;
+}
+
+.workspace.mode-upload .file-list {
+  overflow: visible;
+}
+
 .file-row,
 .file-card {
   display: flex;

@@ -41,7 +41,7 @@ const activeComponent = computed(() => {
 </script>
 
 <template>
-  <main class="app-shell">
+  <main class="app-shell" :class="`mode-${activeMode}`">
     <aside class="sidebar glass-card">
       <div class="brand-block">
         <div class="brand-mark">R</div>
@@ -69,7 +69,7 @@ const activeComponent = computed(() => {
       </nav>
     </aside>
 
-    <section class="workspace">
+    <section class="workspace" :class="`mode-${activeMode}`">
       <header class="workspace-header glass-card">
         <div>
           <p class="eyebrow">Current Mode</p>
