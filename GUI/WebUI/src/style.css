@@ -168,6 +168,8 @@ h3 { margin-bottom: 0; font-size: 17px; }
   border-radius: var(--radius-lg);
 }
 
+.upload-panel { overflow: hidden; }
+
 .chat-panel {
   display: flex;
   flex-direction: column;
@@ -409,8 +411,20 @@ h3 { margin-bottom: 0; font-size: 17px; }
 }
 
 .action-row { justify-content: center; margin-top: 22px; }
+.file-library {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
 .queue-list,
 .file-list { display: grid; gap: 12px; }
+
+.file-list {
+  max-height: min(360px, calc(100vh - 430px));
+  overflow-y: auto;
+  padding-right: 8px;
+}
 
 .file-row,
 .file-card {
@@ -427,6 +441,33 @@ h3 { margin-bottom: 0; font-size: 17px; }
 .file-row p,
 .file-meta p { margin: 6px 0 0; color: var(--muted); font-size: 14px; }
 .file-message { color: var(--primary) !important; }
+
+.file-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.progress-track {
+  width: min(260px, 40vw);
+  height: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.progress-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--primary), #8db0ff);
+  transition: width 0.5s ease;
+}
+
+.progress-fill.done { background: linear-gradient(90deg, var(--success), #8cffcf); }
+.progress-fill.failed { background: linear-gradient(90deg, var(--danger), #ff9aaa); }
 
 .badge {
   display: inline-flex;

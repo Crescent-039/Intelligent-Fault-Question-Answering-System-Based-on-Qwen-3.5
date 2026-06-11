@@ -26,8 +26,11 @@ const notice = ref('')
 const acceptAttribute = ACCEPT_ATTRIBUTE
 const supportedFormatText = SUPPORTED_EXTENSIONS.join(' / ')
 const previousStatusMap = new Map()
+const progressStartMap = new Map()
+const progressNow = ref(Date.now())
 
 let pollingTimer = null
+let progressTimer = null
 
 const supportedFiles = computed(() => selectedFiles.value.filter((item) => item.supported))
 
@@ -42,6 +45,7 @@ const statusText = {
 }
 
 const activeStatuses = ['pending', 'downloading', 'downloaded', 'preprocessing', 'indexing']
+const progressStatuses = [...activeStatuses, 'done', 'failed']
 
 function openFileDialog() {
   fileInput.value?.click()
@@ -100,6 +104,21 @@ function handleStatusTransitions(files) {
   }
 }
 
+function getFakeProgress(file) {
+  if (file.index_status === 'done') return 100
+  if (file.index_status === 'failed') return 100
+  if (!activeStatuses.includes(file.index_status)) return 0
+
+  const startedAt = progressStartMap.get(file.file_id) || progressNow.value
+  const elapsedRatio = Math.min((progressNow.value - startedAt) / 20000, 1)
+  const easedRatio = 1 - Math.pow(1 - elapsedRatio, 3)
+  return Math.min(Math.round(8 + easedRatio * 91), 99)
+}
+
+function shouldShowProgress(file) {
+  return progressStatuses.includes(file.index_status)
+}
+
 function hasActiveFiles(files) {
   return files.some((file) => activeStatuses.includes(file.index_status))
 }
@@ -110,6 +129,31 @@ function stopPolling() {
   pollingTimer = null
 }
 
+function stopProgressTimer() {
+  if (!progressTimer) return
+  window.clearInterval(progressTimer)
+  progressTimer = null
+}
+
+function syncProgressTimer(files = uploadedFiles.value) {
+  for (const file of files) {
+    if (activeStatuses.includes(file.index_status) && !progressStartMap.has(file.file_id)) {
+      progressStartMap.set(file.file_id, Date.now())
+    }
+  }
+
+  if (hasActiveFiles(files)) {
+    if (!progressTimer) {
+      progressTimer = window.setInterval(() => {
+        progressNow.value = Date.now()
+      }, 500)
+    }
+    return
+  }
+
+  stopProgressTimer()
+}
+
 function schedulePolling() {
   stopPolling()
   pollingTimer = window.setTimeout(async () => {
@@ -118,6 +162,8 @@ function schedulePolling() {
 }
 
 function syncPollingState(files = uploadedFiles.value) {
+  syncProgressTimer(files)
+
   if (hasActiveFiles(files)) {
     schedulePolling()
     return
@@ -176,7 +222,10 @@ async function removeFile(file) {
 }
 
 onMounted(loadFiles)
-onBeforeUnmount(stopPolling)
+onBeforeUnmount(() => {
+  stopPolling()
+  stopProgressTimer()
+})
 </script>
 
 <template>
@@ -239,6 +288,12 @@ onBeforeUnmount(stopPolling)
             <strong>{{ file.filename }}</strong>
             <p>{{ file.file_type }} · {{ file.uploaded_at || '刚刚上传' }}</p>
             <p v-if="file.message" class="file-message">{{ file.message }}</p>
+            <div v-if="shouldShowProgress(file)" class="file-progress">
+              <div class="progress-track">
+                <div class="progress-fill" :class="file.index_status" :style="{ width: `${getFakeProgress(file)}%` }"></div>
+              </div>
+              <span>{{ getFakeProgress(file) }}%</span>
+            </div>
           </div>
           <div class="file-actions">
             <span class="badge" :class="file.index_status">{{ statusText[file.index_status] || file.index_status }}</span>
