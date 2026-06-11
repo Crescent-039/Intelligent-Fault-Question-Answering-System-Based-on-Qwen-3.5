@@ -1,6 +1,6 @@
 from embedding_model import EmbeddingModel
 from llm_model import LLMModel
-from chat_with_doc import retrieve_by_file_ids, build_context, resolve_citations
+from chat_with_doc import retrieve_by_file_ids, build_context, resolve_citation
 from build_index import Builder
 import sys
 from threading import Lock
@@ -16,7 +16,7 @@ class RagChatService:
         self.model_lock = Lock()
         self.init_rag_service()
 
-    def init_rag_service(self, load_llm=True, warmup=True):
+    def init_rag_service(self, load_llm=False, warmup=True):
         if not load_llm:
             self.embedder = EmbeddingModel(device="cuda")
         else:
@@ -37,6 +37,9 @@ class RagChatService:
 
     def add_path_to_index(self, path):
         return self.index_builder.build_path_index(path)
+
+    def delete_file_from_index(self, file_name):
+        return self.index_builder.delete_file_by_name(file_name)
 
     def warmup_llm(self):
         if self.llm is None:
@@ -66,7 +69,7 @@ class RagChatService:
         return ""
 
     def get_citation_details(self, chunk_uids):
-        return resolve_citations(chunk_uids)
+        return resolve_citation(chunk_uids)
 
     def send(self, messages, file_ids=None, rag_top_k=10, tem=0.3, max_tokens=2048, thinking=True, rag_enabled=True, stop_event=None):
         file_ids = file_ids or []

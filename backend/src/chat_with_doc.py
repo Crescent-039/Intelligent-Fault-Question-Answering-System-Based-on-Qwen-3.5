@@ -81,9 +81,19 @@ def resolve_citation(chunk_uid: int):
         if file_id == "_meta":
             continue
         chunks_path = file_meta["chunks_path"]
+        if not chunks_path or not os.path.exists(chunks_path):
+            continue
         chunk_records = load_json(chunks_path)
-        for chunk in chunk_records:
+        for i, chunk in enumerate(chunk_records):
             if chunk["id"] == chunk_uid:
+                if i > 0:
+                    last_text = chunk_records[i-1]["text"]
+                else:
+                    last_text = ""
+                try:
+                    next_text = chunk_records[i+1]["text"]
+                except:
+                    next_text = ""
                 source = chunk["source"]
                 return {
                     "chunk_uid": chunk["id"],
@@ -94,7 +104,7 @@ def resolve_citation(chunk_uid: int):
                     "file_name": os.path.basename(source),
                     "source": source,
                     "extension": chunk["extension"],
-                    "text": chunk["text"]
+                    "text": last_text + chunk["text"] + next_text
                 }
     return None
 

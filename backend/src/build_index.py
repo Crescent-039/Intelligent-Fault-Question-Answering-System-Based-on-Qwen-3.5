@@ -106,6 +106,38 @@ class Builder:
             }
         raise ValueError(f"不支持的路径类型: {path}")
 
+    def delete_file_by_name(self, file_name):
+        manifest = self.load_manifest()
+        file_id, file_meta = self.find_file_by_name(manifest, file_name)
+        deleted_paths = [
+            self.remove_path(file_meta.get("file_path")),
+            self.remove_path(file_meta.get("chunks_path")),
+            self.remove_path(file_meta.get("index_path"))
+        ]
+
+        return {
+            "file_id": file_id,
+            "file_name": file_name,
+            "deleted_paths": [path for path in deleted_paths if path],
+            "status": "deleted"
+        }
+
+    def find_file_by_name(self, manifest, file_name):
+        for file_id, file_meta in manifest.items():
+            if file_id == "_meta":
+                continue
+            if os.path.basename(file_meta.get("file_path", "")) == file_name:
+                return file_id, file_meta
+        raise KeyError(f"文件未建立索引: {file_name}")
+
+    def remove_path(self, file_path):
+        if not file_path:
+            return None
+        if os.path.exists(file_path):
+            os.remove(file_path)
+            return file_path
+        return None
+
     def get_chunks_path(self, file_id):
         return os.path.join(CHUNKS_DIR, f"{file_id}.json")
 
@@ -146,5 +178,9 @@ class Builder:
             "next_global_chunk_id": next_global_chunk_id
         }
         save_json(manifest, FILES_MANIFEST_PATH)
+
+
+
+
 
 

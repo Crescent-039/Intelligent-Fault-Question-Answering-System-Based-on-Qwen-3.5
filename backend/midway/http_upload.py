@@ -8,8 +8,10 @@ from fastapi import FastAPI, File, UploadFile, Form
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import shutil
-
-from Communication import RagChatService
+import sys
+sys.path.append("..")
+sys.path.append("../src")
+from src.Communication import RagChatService
 
 app = FastAPI()
 
