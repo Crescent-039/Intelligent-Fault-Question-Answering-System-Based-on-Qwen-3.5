@@ -168,7 +168,11 @@ h3 { margin-bottom: 0; font-size: 17px; }
   border-radius: var(--radius-lg);
 }
 
-.upload-panel { overflow: hidden; }
+.upload-panel {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
 
 .chat-panel {
   display: flex;
@@ -414,16 +418,19 @@ h3 { margin-bottom: 0; font-size: 17px; }
 .file-library {
   display: flex;
   flex-direction: column;
+  flex: 1 1 auto;
   min-height: 0;
+  overflow: hidden;
 }
 
 .queue-list,
 .file-list { display: grid; gap: 12px; }
 
 .file-list {
-  max-height: min(360px, calc(100vh - 430px));
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
-  padding-right: 8px;
+  padding: 0 8px 16px 0;
 }
 
 .file-row,

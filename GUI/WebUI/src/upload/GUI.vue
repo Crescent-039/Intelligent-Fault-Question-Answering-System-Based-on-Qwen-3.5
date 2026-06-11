@@ -175,7 +175,16 @@ function syncPollingState(files = uploadedFiles.value) {
 async function uploadSelectedFiles() {
   if (!supportedFiles.value.length || uploading.value) return
 
-  const queuedFiles = [...selectedFiles.value]
+  const existingNames = new Set(uploadedFiles.value.map((file) => file.filename))
+  const duplicatedFiles = supportedFiles.value.filter((item) => existingNames.has(item.file.name))
+
+  if (duplicatedFiles.length) {
+    window.alert(`以下文件已存在，将从待上传列表移除：\n${duplicatedFiles.map((item) => item.file.name).join('\n')}`)
+    selectedFiles.value = selectedFiles.value.filter((item) => !duplicatedFiles.includes(item))
+  }
+
+  const queuedFiles = selectedFiles.value.filter((item) => item.supported)
+  if (!queuedFiles.length) return
 
   uploading.value = true
   notice.value = ''
