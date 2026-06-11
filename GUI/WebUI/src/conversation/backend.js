@@ -34,28 +34,40 @@ export class ChatStreamClient {
     this.socket = null
     this.activeRequestId = null
     this.heartbeatTimer = null
+    this.connectPromise = null
   }
 
   connect() {
-    if (this.socket && [WebSocket.OPEN, WebSocket.CONNECTING].includes(this.socket.readyState)) return
+    if (this.isOpen()) return Promise.resolve()
+    if (this.connectPromise) return this.connectPromise
+    if (this.socket?.readyState === WebSocket.CONNECTING) return this.connectPromise || Promise.resolve()
 
-    this.socket = new WebSocket(this.url)
+    this.connectPromise = new Promise((resolve, reject) => {
+      this.socket = new WebSocket(this.url)
 
-    this.socket.addEventListener('open', () => {
-      this.handlers.onOpen?.()
-      this.startHeartbeat()
+      this.socket.addEventListener('open', () => {
+        this.handlers.onOpen?.()
+        this.startHeartbeat()
+        this.connectPromise = null
+        resolve()
+      })
+
+      this.socket.addEventListener('message', (event) => this.handleMessage(event.data))
+
+      this.socket.addEventListener('error', (event) => {
+        this.handlers.onError?.({ code: 'WS_ERROR', message: 'WebSocket 连接异常', raw: event })
+        this.connectPromise = null
+        reject(new Error('WebSocket 连接异常'))
+      })
+
+      this.socket.addEventListener('close', () => {
+        this.stopHeartbeat()
+        this.handlers.onClose?.()
+        this.connectPromise = null
+      })
     })
 
-    this.socket.addEventListener('message', (event) => this.handleMessage(event.data))
-
-    this.socket.addEventListener('error', (event) => {
-      this.handlers.onError?.({ code: 'WS_ERROR', message: 'WebSocket 连接异常', raw: event })
-    })
-
-    this.socket.addEventListener('close', () => {
-      this.stopHeartbeat()
-      this.handlers.onClose?.()
-    })
+    return this.connectPromise
   }
 
   isOpen() {
@@ -90,11 +102,8 @@ export class ChatStreamClient {
     this.socket.send(JSON.stringify({ request_id: requestId, type: 'cancel' }))
   }
 
-  requestCitationDetail(chunkUid) {
-    if (!this.isOpen()) {
-      this.connect()
-      throw new Error('WebSocket 尚未连接，请稍后重试')
-    }
+  async requestCitationDetail(chunkUid) {
+    if (!this.isOpen()) await this.connect()
 
     const requestId = createRequestId()
     this.socket.send(JSON.stringify({

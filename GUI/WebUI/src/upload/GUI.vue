@@ -129,10 +129,13 @@ function syncPollingState(files = uploadedFiles.value) {
 async function uploadSelectedFiles() {
   if (!supportedFiles.value.length || uploading.value) return
 
+  const queuedFiles = [...selectedFiles.value]
+
   uploading.value = true
   notice.value = ''
+  selectedFiles.value = []
 
-  for (const item of selectedFiles.value) {
+  for (const item of queuedFiles) {
     if (!item.supported) continue
 
     item.status = 'uploading'

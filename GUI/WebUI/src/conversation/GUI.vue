@@ -140,14 +140,14 @@ function closeCitationDialog() {
   pendingCitationRequestId.value = null
 }
 
-function openCitationDetail(chunkUid) {
+async function openCitationDetail(chunkUid) {
   citationDialogVisible.value = true
   citationLoading.value = true
   citationError.value = ''
   citationDetail.value = null
 
   try {
-    pendingCitationRequestId.value = client.requestCitationDetail(chunkUid)
+    pendingCitationRequestId.value = await client.requestCitationDetail(chunkUid)
   } catch (error) {
     citationLoading.value = false
     citationError.value = error.message || '引用详情加载失败'

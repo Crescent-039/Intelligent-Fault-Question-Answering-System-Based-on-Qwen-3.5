@@ -336,21 +336,40 @@ h3 { margin-bottom: 0; font-size: 17px; }
 
 .upload-dropzone {
   position: relative;
-  overflow: hidden;
+  isolation: isolate;
   margin-top: 24px;
-  padding: 44px 28px;
-  border: 1px dashed var(--border-strong);
+  padding: 46px 28px 44px;
+  border: 1px solid rgba(86, 134, 254, 0.28);
   border-radius: var(--radius-lg);
   text-align: center;
-  background: rgba(86, 134, 254, 0.045);
+  background:
+    radial-gradient(ellipse at 50% 66%, rgba(86, 134, 254, 0.16), rgba(86, 134, 254, 0.055) 34%, transparent 64%),
+    radial-gradient(ellipse at 50% 0%, rgba(255, 255, 255, 0.045), transparent 42%),
+    linear-gradient(180deg, rgba(12, 18, 31, 0.88), rgba(8, 13, 23, 0.72));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.045),
+    inset 0 -1px 0 rgba(86, 134, 254, 0.12),
+    0 18px 54px rgba(0, 0, 0, 0.18);
+}
+
+.upload-dropzone::before {
+  content: '';
+  position: absolute;
+  inset: 1px;
+  border-radius: calc(var(--radius-lg) - 1px);
+  border: 1px solid rgba(255, 255, 255, 0.035);
+  background: linear-gradient(135deg, rgba(86, 134, 254, 0.06), transparent 34%, rgba(86, 134, 254, 0.035));
+  pointer-events: none;
+  z-index: 0;
 }
 
 .dropzone-glow {
-  position: absolute;
-  inset: auto 20% -70px;
-  height: 120px;
-  background: radial-gradient(circle, rgba(86, 134, 254, 0.22), transparent 65%);
-  pointer-events: none;
+  display: none;
+}
+
+.upload-dropzone > :not(.dropzone-glow) {
+  position: relative;
+  z-index: 1;
 }
 
 .dropzone-title { margin-bottom: 8px; font-size: 24px; font-weight: 800; }
