@@ -65,13 +65,14 @@ function openFolderDialog() {
 
 function collectFiles(event) {
   const files = Array.from(event.target.files || [])
-  selectedFiles.value = files.map((file) => ({
+  const newItems = files.map((file) => ({
     file,
     name: file.webkitRelativePath || file.name,
     supported: isSupportedFile(file),
     status: 'ready',
     message: isSupportedFile(file) ? '待上传' : '格式不支持',
   }))
+  selectedFiles.value = [...selectedFiles.value, ...newItems]
   event.target.value = ''
 }
 
@@ -197,14 +198,15 @@ async function uploadSelectedFiles() {
     selectedFiles.value = selectedFiles.value.filter((item) => !duplicatedFiles.includes(item))
   }
 
-  const queuedFiles = selectedFiles.value.filter((item) => item.supported)
-  if (!queuedFiles.length) return
+  if (!selectedFiles.value.some((item) => item.supported)) return
 
   uploading.value = true
   notice.value = ''
 
-  for (const item of queuedFiles) {
+  while (selectedFiles.value.some((item) => item.supported)) {
+    const item = selectedFiles.value.find((queuedItem) => queuedItem.supported)
     await processQueuedFile(item)
+    selectedFiles.value = selectedFiles.value.filter((queuedItem) => queuedItem !== item)
   }
 
   uploading.value = false

@@ -34,7 +34,6 @@ const citationDetail = ref(null)
 const pendingCitationRequestId = ref(null)
 
 const CITATION_FADE_EDGE = 10
-const CITATION_MIN_OPACITY = 0.22
 
 const sessions = computed(() => appState.chatSessions)
 const currentSession = computed(() => getActiveChatSession())
@@ -142,17 +141,18 @@ function buildCitationFadeChars(text) {
   if (!length) return []
 
   const edge = Math.min(CITATION_FADE_EDGE, Math.ceil(length / 2))
+  const denominator = Math.max(edge - 1, 1)
 
   return chars.map((char, index) => {
     let opacity = 1
 
     if (index < edge) {
-      opacity = CITATION_MIN_OPACITY + ((1 - CITATION_MIN_OPACITY) * (index + 1)) / edge
+      opacity = index / denominator
     }
 
     if (index >= length - edge) {
       const tailDistance = length - index
-      const tailOpacity = CITATION_MIN_OPACITY + ((1 - CITATION_MIN_OPACITY) * tailDistance) / edge
+      const tailOpacity = (tailDistance - 1) / denominator
       opacity = Math.min(opacity, tailOpacity)
     }
 
