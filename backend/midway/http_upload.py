@@ -210,15 +210,21 @@ async def retry_preprocess(file_id: str):
 
 @app.delete("/api/file/{file_id}")
 async def delete_file(file_id: str):
-    # TODO: 删除接口暂未实现，后续按统一的文件管理方案接入。
-    return JSONResponse(
-        status_code=501,
-        content={
-            "status": "todo",
+    try:
+        server.delete_file_from_index(file_id)
+    except Exception as e:
+        print(f"文件删除失败：{file_id}: {str(e)}")
+        return {
+            "status": "error",
             "file_id": file_id,
-            "message": "文件删除接口暂为占位实现。"
+            "message": f"文件删除失败，发生了错误{str(e)}。"
         }
-    )
+
+    return {
+        "status": "success",
+        "file_id": file_id,
+        "message": "文件删除成功。"
+    }
 
 if __name__ == "__main__":
     import uvicorn

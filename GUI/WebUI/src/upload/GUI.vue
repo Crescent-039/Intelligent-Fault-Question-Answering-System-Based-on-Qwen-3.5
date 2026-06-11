@@ -225,9 +225,19 @@ async function refreshStatus(file) {
 }
 
 async function removeFile(file) {
+  if (file.deleting) return
   if (!window.confirm(`确认删除 ${file.filename}？`)) return
-  await deleteFile(file.file_id)
-  await loadFiles()
+
+  file.deleting = true
+  try {
+    const result = await deleteFile(file.file_id)
+    window.alert(result?.message || '删除成功')
+    await loadFiles()
+  } catch (error) {
+    window.alert(error?.message || '删除失败')
+  } finally {
+    file.deleting = false
+  }
 }
 
 onMounted(loadFiles)
@@ -249,39 +259,41 @@ onBeforeUnmount(() => {
       </button>
     </div>
 
-    <div class="upload-dropzone">
-      <input ref="fileInput" hidden type="file" multiple :accept="acceptAttribute" @change="collectFiles" />
-      <input ref="folderInput" hidden type="file" multiple webkitdirectory directory @change="collectFiles" />
+    <div class="upload-top-grid">
+      <div class="upload-dropzone">
+        <input ref="fileInput" hidden type="file" multiple :accept="acceptAttribute" @change="collectFiles" />
+        <input ref="folderInput" hidden type="file" multiple webkitdirectory directory @change="collectFiles" />
 
-      <div class="dropzone-glow"></div>
-      <p class="dropzone-title">选择文件或文件夹</p>
-      <p class="muted">支持 {{ supportedFormatText }}，文件夹会自动拆分为多个文件上传。</p>
-      <div class="action-row">
-        <button class="primary-btn" @click="openFileDialog">选择文件</button>
-        <button class="secondary-btn" @click="openFolderDialog">选择文件夹</button>
-      </div>
-    </div>
-
-    <div v-if="selectedFiles.length" class="sub-panel">
-      <div class="panel-header compact">
-        <h3>待上传队列</h3>
-        <button class="primary-btn small" :disabled="uploading || !supportedFiles.length" @click="uploadSelectedFiles">
-          {{ uploading ? '上传中...' : `上传 ${supportedFiles.length} 个文件` }}
-        </button>
+        <div class="dropzone-glow"></div>
+        <p class="dropzone-title">选择文件或文件夹</p>
+        <p class="muted">支持 {{ supportedFormatText }}</p>
+        <div class="action-row">
+          <button class="primary-btn" @click="openFileDialog">选择文件</button>
+          <button class="secondary-btn" @click="openFolderDialog">选择文件夹</button>
+        </div>
       </div>
 
-      <div class="queue-list">
-        <div v-for="item in selectedFiles" :key="item.name" class="file-row">
-          <div>
-            <strong>{{ item.name }}</strong>
-            <p>{{ item.message }}</p>
+      <div class="sub-panel upload-queue-panel">
+        <div class="panel-header compact">
+          <h3>待上传队列</h3>
+          <button class="primary-btn small" :disabled="uploading || !supportedFiles.length" @click="uploadSelectedFiles">
+            {{ uploading ? '上传中...' : `上传 ${supportedFiles.length} 个文件` }}
+          </button>
+        </div>
+
+        <div v-if="!selectedFiles.length" class="empty-state queue-empty">暂无待上传文件。</div>
+
+        <div v-else class="queue-list">
+          <div v-for="item in selectedFiles" :key="item.name" class="file-row">
+            <div>
+              <strong>{{ item.name }}</strong>
+              <p>{{ item.message }}</p>
+            </div>
+            <span class="badge" :class="item.status">{{ item.status }}</span>
           </div>
-          <span class="badge" :class="item.status">{{ item.status }}</span>
         </div>
       </div>
     </div>
-
-    <p v-if="notice" class="notice">{{ notice }}</p>
 
     <div class="sub-panel file-library">
       <div class="panel-header compact">
@@ -309,7 +321,9 @@ onBeforeUnmount(() => {
             <button class="ghost-btn small" :disabled="file.refreshing" @click="refreshStatus(file)">
               {{ file.refreshing ? '查询中' : '状态' }}
             </button>
-            <button class="danger-btn small" @click="removeFile(file)">删除</button>
+            <button class="danger-btn small" :disabled="file.deleting" @click="removeFile(file)">
+              {{ file.deleting ? '删除中...' : '删除' }}
+            </button>
           </div>
         </div>
       </div>
