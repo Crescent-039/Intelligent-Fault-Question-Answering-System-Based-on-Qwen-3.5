@@ -34,6 +34,14 @@ let progressTimer = null
 
 const supportedFiles = computed(() => selectedFiles.value.filter((item) => item.supported))
 
+const queueStatusText = {
+  ready: '待上传',
+  uploading: '上传中',
+  indexing: '处理中',
+  success: '已完成',
+  failed: '失败',
+}
+
 const statusText = {
   pending: '等待处理',
   downloading: '正在下载',
@@ -161,6 +169,12 @@ function schedulePolling() {
   }, 2000)
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms)
+  })
+}
+
 function syncPollingState(files = uploadedFiles.value) {
   syncProgressTimer(files)
 
@@ -188,27 +202,53 @@ async function uploadSelectedFiles() {
 
   uploading.value = true
   notice.value = ''
-  selectedFiles.value = []
 
   for (const item of queuedFiles) {
-    if (!item.supported) continue
-
-    item.status = 'uploading'
-    item.message = '上传中...'
-
-    try {
-      await uploadFile(item.file, userId.value)
-      item.status = 'success'
-      item.message = '上传成功，等待索引'
-    } catch (error) {
-      const normalized = normalizeUploadError(error)
-      item.status = 'failed'
-      item.message = normalized.message
-    }
+    await processQueuedFile(item)
   }
 
   uploading.value = false
   await loadFiles()
+}
+
+async function waitForFileCompletion(fileId) {
+  while (true) {
+    const result = await fetchFileStatus(fileId)
+    if (result.index_status === 'done' || result.index_status === 'failed') {
+      return result
+    }
+    await sleep(2000)
+  }
+}
+
+async function processQueuedFile(item) {
+  item.status = 'uploading'
+  item.message = '上传中...'
+
+  try {
+    const uploadResult = await uploadFile(item.file, userId.value)
+    const fileId = uploadResult.file_id || item.file.name
+
+    item.status = 'indexing'
+    item.message = uploadResult.message || '上传成功，等待预处理'
+    await loadFiles()
+
+    const finalResult = await waitForFileCompletion(fileId)
+
+    if (finalResult.index_status === 'done') {
+      item.status = 'success'
+      item.message = finalResult.message || '预处理完成'
+    } else {
+      item.status = 'failed'
+      item.message = finalResult.message || '处理失败'
+    }
+
+    await loadFiles()
+  } catch (error) {
+    const normalized = normalizeUploadError(error)
+    item.status = 'failed'
+    item.message = normalized.message
+  }
 }
 
 async function refreshStatus(file) {
@@ -289,7 +329,7 @@ onBeforeUnmount(() => {
               <strong>{{ item.name }}</strong>
               <p>{{ item.message }}</p>
             </div>
-            <span class="badge" :class="item.status">{{ item.status }}</span>
+            <span class="badge" :class="item.status">{{ queueStatusText[item.status] || item.status }}</span>
           </div>
         </div>
       </div>
