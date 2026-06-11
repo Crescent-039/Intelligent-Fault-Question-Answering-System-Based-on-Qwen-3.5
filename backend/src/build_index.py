@@ -72,7 +72,6 @@ class Builder:
         }
 
     def build_path_index(self, path):
-        print(path, "!!!!!")
         path = Path(path).resolve()
         if not path.exists():
             raise FileNotFoundError(f"路径不存在: {path}")
@@ -108,9 +107,32 @@ class Builder:
 
     def delete_file_by_name(self, file_name):
         manifest = self.load_manifest()
-        file_id, file_meta = self.find_file_by_name(manifest, file_name)
+        print(file_name)
+        try:
+            file_id, file_meta = self.find_file_by_name(manifest, file_name)
+        except KeyError:
+            print("未创建全局chunk文件")
+            deleted_paths = [
+                self.remove_path(Path("../midway") / "uploads" / "tmp" / file_name),
+                self.remove_path(Path("../midway") / "uploads" / "shared" / file_name)
+            ]
+            return {
+                "file_id": None,
+                "file_name": file_name,
+                "deleted_paths": [path for path in deleted_paths if path],
+                "status": "deleted" if any(deleted_paths) else "not_found"
+            }
+
+        file_tmp_path = file_meta.get("file_path")
+        file_tmp_parts = Path(file_tmp_path)
+        parts = list(file_tmp_parts.parts)
+        idx = parts.index("tmp")
+        parts[idx] = "shared"
+        file_shared_path = Path(*parts)
+        print(file_shared_path)
         deleted_paths = [
-            self.remove_path(file_meta.get("file_path")),
+            self.remove_path(file_tmp_path),
+            self.remove_path(file_shared_path),
             self.remove_path(file_meta.get("chunks_path")),
             self.remove_path(file_meta.get("index_path"))
         ]
@@ -135,7 +157,7 @@ class Builder:
             return None
         if os.path.exists(file_path):
             os.remove(file_path)
-            return file_path
+            return str(file_path)
         return None
 
     def get_chunks_path(self, file_id):
@@ -178,6 +200,7 @@ class Builder:
             "next_global_chunk_id": next_global_chunk_id
         }
         save_json(manifest, FILES_MANIFEST_PATH)
+
 
 
 

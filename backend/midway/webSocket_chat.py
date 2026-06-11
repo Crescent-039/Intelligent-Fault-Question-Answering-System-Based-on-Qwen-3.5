@@ -13,7 +13,6 @@ sys.path.append("../src")
 # 按你的实际路径修改
 # 假设你的 send 函数在 src/rag_chat_service.py
 from src.Communication import RagChatService
-from Communication import RagChatService
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 CONFIG_PATH = ROOT_DIR / "config.json"
@@ -47,7 +46,7 @@ rag_service = RagChatService()
 
 @app.on_event("startup")
 async def startup_event():
-    rag_service.init_rag_service()
+    pass
 
 
 @app.get("/api/config/frontend")

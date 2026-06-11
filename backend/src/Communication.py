@@ -3,6 +3,7 @@ from llm_model import LLMModel
 from chat_with_doc import retrieve_by_file_ids, build_context, resolve_citation
 from build_index import Builder
 import sys
+import torch
 from threading import Lock
 sys.path.append("..")
 
@@ -27,6 +28,7 @@ class RagChatService:
             self.llm = LLMModel(device="cuda")
             if warmup:
                 self.warmup_llm()
+                self.warmup_embedding()
         self.ready = True
 
     def add_file_to_index(self, file_id, file_path):
@@ -41,6 +43,15 @@ class RagChatService:
     def delete_file_from_index(self, file_name):
         return self.index_builder.delete_file_by_name(file_name)
 
+    def warmup_embedding(self):
+        if self.embedder is None:
+            return
+        print("[Embedding] 正在 warmup...")
+        _ = self.embedder.encode(["warmup text"])
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()  # 确保 GPU 计算全部完成
+        print("[Embedding] warmup 完成")
+
     def warmup_llm(self):
         if self.llm is None:
             return
@@ -50,10 +61,12 @@ class RagChatService:
                 context="",
                 system_prompt="你是一个助手，请简短回答。",
                 temperature=0.3,
-                max_tokens=8,
+                max_tokens=100,
                 enable_thinking=False
         ):
             pass
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
         print("[LLM] warmup 完成")
 
     def get_last_user_message(self, messages):
