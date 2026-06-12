@@ -9,10 +9,6 @@
         <view class="menu-line"></view>
         <view class="menu-line short"></view>
       </view>
-      <view class="top-title-wrap">
-        <text class="top-caption">STREAMING CHAT</text>
-        <text class="top-title">{{ activeSessionTitle }}</text>
-      </view>
     </view>
 
     <view class="sidebar-mask" :class="{ show: sidebarOpen }" @tap="closeSidebar"></view>
@@ -46,25 +42,26 @@
     </view>
 
     <view class="chat-section">
-      <view class="chat-toolbar">
-        <view class="chat-status-wrap">
-          <view class="status-dot" :class="connectionStatus"></view>
-          <text class="chat-status-text">{{ connectionStatusText }}</text>
+      <view class="hero-section" :class="{ faded: hasConversationStarted }">
+        <view class="hero-logo">
+          <text class="hero-logo-text">R</text>
         </view>
-        <view class="chat-toolbar-actions">
-          <text v-if="connectionStatus !== 'connected'" class="toolbar-link" @tap="retryConnection">重连</text>
-          <text class="toolbar-link" @tap="clearChat">清空</text>
-        </view>
+        <text class="hero-caption">QWEN RAG CONSOLE</text>
+        <text class="hero-title">文档问答系统</text>
+        <text class="hero-description">
+          极简暗色风格的微信小程序首页空壳，用于承接后续对话、RAG 与思考模式能力。
+        </text>
       </view>
 
       <scroll-view
         class="message-list"
+        :class="{ active: hasConversationStarted }"
         scroll-y="true"
         enhanced="true"
         :scroll-into-view="scrollIntoView"
       >
         <view
-          v-for="(item, index) in messages"
+          v-for="(item, index) in visibleMessages"
           :key="item.id || index"
           class="message-row"
           :class="item.role"
@@ -139,6 +136,7 @@
 <script>
 import {
   ChatStreamClient,
+  DEFAULT_WELCOME_MESSAGE,
   buildChatMessages,
   createDefaultWsUrl,
 } from './backend'
@@ -182,20 +180,17 @@ export default {
     messages() {
       return this.currentSession?.messages || []
     },
+    visibleMessages() {
+      return this.messages.filter((item) => item.content !== DEFAULT_WELCOME_MESSAGE)
+    },
     activeSessionTitle() {
       return this.currentSession?.title || '新对话'
     },
+    hasConversationStarted() {
+      return this.messages.some((item) => item.role === 'user')
+    },
     canSend() {
       return Boolean(this.message.trim())
-    },
-    connectionStatusText() {
-      const map = {
-        connecting: '连接中',
-        connected: '已连接',
-        disconnected: '未连接',
-        error: '连接异常',
-      }
-      return map[this.connectionStatus] || this.connectionStatus
     },
   },
   onLoad() {
@@ -468,8 +463,8 @@ export default {
     },
     shouldShowMessageActions(message, index) {
       if (this.generating || message.role !== 'assistant' || message.streaming) return false
-      if (index !== this.messages.length - 1) return false
-      return this.messages[index - 1]?.role === 'user'
+      if (index !== this.visibleMessages.length - 1) return false
+      return this.visibleMessages[index - 1]?.role === 'user'
     },
     copyMessage(message) {
       const content = message.content?.trim()
@@ -552,31 +547,6 @@ export default {
   z-index: 5;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 18rpx;
-}
-
-.top-title-wrap {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8rpx;
-}
-
-.top-caption {
-  font-size: 18rpx;
-  letter-spacing: 6rpx;
-  color: rgba(120, 151, 255, 0.82);
-}
-
-.top-title {
-  font-size: 34rpx;
-  font-weight: 600;
-  color: #f4f7ff;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .menu-button {
@@ -742,68 +712,33 @@ export default {
   z-index: 1;
   flex: 1;
   min-height: 0;
-  margin-top: 28rpx;
-  padding: 24rpx;
-  border: 1rpx solid rgba(87, 125, 255, 0.18);
-  border-radius: 32rpx;
-  background: linear-gradient(180deg, rgba(9, 19, 37, 0.92), rgba(7, 14, 28, 0.9));
+  margin-top: 8rpx;
   display: flex;
   flex-direction: column;
 }
 
-.chat-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16rpx;
-  margin-bottom: 20rpx;
-}
-
-.chat-status-wrap {
-  display: flex;
-  align-items: center;
-  gap: 10rpx;
-}
-
-.status-dot {
-  width: 16rpx;
-  height: 16rpx;
-  border-radius: 50%;
-  background: rgba(148, 163, 184, 0.8);
-}
-
-.status-dot.connected {
-  background: #34d399;
-}
-
-.status-dot.connecting {
-  background: #fbbf24;
-}
-
-.status-dot.disconnected,
-.status-dot.error {
-  background: #f87171;
-}
-
-.chat-status-text,
-.toolbar-link {
-  font-size: 22rpx;
-  color: rgba(220, 230, 255, 0.88);
-}
-
-.chat-toolbar-actions {
-  display: flex;
-  align-items: center;
-  gap: 20rpx;
-}
-
 .message-list {
+  position: relative;
+  z-index: 2;
   flex: 1;
   min-height: 0;
+  opacity: 0;
+  transform: translateY(24rpx);
+  transition: opacity 0.32s ease, transform 0.32s ease;
+}
+
+.message-list.active {
+  opacity: 1;
+  transform: translateY(0);
 }
 
 .message-row + .message-row {
   margin-top: 24rpx;
+}
+
+.message-row {
+  display: flex;
+  flex-direction: column;
 }
 
 .message-row.user {
@@ -821,11 +756,12 @@ export default {
 }
 
 .message-bubble {
-  max-width: 100%;
+  max-width: 78%;
   padding: 22rpx 24rpx;
   border-radius: 24rpx;
   border: 1rpx solid rgba(98, 125, 192, 0.14);
   background: rgba(14, 24, 45, 0.88);
+  box-shadow: 0 12rpx 28rpx rgba(0, 0, 0, 0.14);
 }
 
 .message-bubble.user {
@@ -867,16 +803,22 @@ export default {
 }
 
 .hero-section {
-  position: relative;
+  position: absolute;
+  inset: 0;
   z-index: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  flex: 1;
-  min-height: 0;
   padding: 48rpx 20rpx 32rpx;
   text-align: center;
+  transition: opacity 0.35s ease, transform 0.35s ease;
+}
+
+.hero-section.faded {
+  opacity: 0;
+  transform: scale(0.92) translateY(-20rpx);
+  pointer-events: none;
 }
 
 .hero-logo {
