@@ -9,34 +9,81 @@
         <view class="menu-line"></view>
         <view class="menu-line short"></view>
       </view>
+      <view class="top-title-wrap">
+        <text class="top-caption">STREAMING CHAT</text>
+        <text class="top-title">{{ activeSessionTitle }}</text>
+      </view>
     </view>
 
     <view class="sidebar-mask" :class="{ show: sidebarOpen }" @tap="closeSidebar"></view>
     <view class="sidebar" :class="{ open: sidebarOpen }">
       <view class="sidebar-header">
         <text class="sidebar-title">历史对话</text>
-        <text class="sidebar-subtitle">仅做展示，暂未接入数据</text>
+        <text class="sidebar-subtitle">本地会话列表，后续再接入真实消息</text>
       </view>
 
-      <view
-        v-for="item in historyList"
-        :key="item.id"
-        class="history-card"
-      >
-        <text class="history-title">{{ item.title }}</text>
-        <text class="history-time">{{ item.time }}</text>
+      <view class="new-chat-button" @tap="startNewChat">
+        <text class="new-chat-button-text">+ 新建对话</text>
       </view>
+
+      <scroll-view class="history-list" scroll-y="true" enhanced="true" show-scrollbar="false">
+        <view
+          v-for="item in historyList"
+          :key="item.id"
+          class="history-card"
+          :class="{ active: activeHistoryId === item.id }"
+          @tap="selectSession(item.id)"
+        >
+          <view class="history-main">
+            <text class="history-title">{{ item.title }}</text>
+            <text class="history-time">{{ formatTime(item.updatedAt) }}</text>
+          </view>
+          <view class="history-delete" @tap.stop="confirmDeleteSession(item.id)">
+            <text class="history-delete-text">删除</text>
+          </view>
+        </view>
+      </scroll-view>
     </view>
 
-    <view class="hero-section">
-      <view class="hero-logo">
-        <text class="hero-logo-text">R</text>
+    <view class="chat-section">
+      <view class="chat-toolbar">
+        <view class="chat-status-wrap">
+          <view class="status-dot" :class="connectionStatus"></view>
+          <text class="chat-status-text">{{ connectionStatusText }}</text>
+        </view>
+        <view class="chat-toolbar-actions">
+          <text v-if="connectionStatus !== 'connected'" class="toolbar-link" @tap="retryConnection">重连</text>
+          <text class="toolbar-link" @tap="clearChat">清空</text>
+        </view>
       </view>
-      <text class="hero-caption">QWEN RAG CONSOLE</text>
-      <text class="hero-title">文档问答系统</text>
-      <text class="hero-description">
-        极简暗色风格的微信小程序首页空壳，用于承接后续对话、RAG 与思考模式能力。
-      </text>
+
+      <scroll-view
+        class="message-list"
+        scroll-y="true"
+        enhanced="true"
+        :scroll-into-view="scrollIntoView"
+      >
+        <view
+          v-for="(item, index) in messages"
+          :key="item.id || index"
+          class="message-row"
+          :class="item.role"
+        >
+          <view class="message-role">{{ item.role === 'user' ? '你' : '助手' }}</view>
+          <view class="message-bubble" :class="item.role">
+            <text class="message-text">{{ item.content || (item.streaming ? '正在思考...' : '') }}</text>
+            <text v-if="item.streaming" class="message-cursor">|</text>
+          </view>
+          <view v-if="shouldShowMessageActions(item, index)" class="message-actions">
+            <text class="message-action" @tap="copyMessage(item)">复制</text>
+            <text class="message-action" @tap="retryLastRound">重试</text>
+            <text class="message-action danger" @tap="deleteLastRound">删除</text>
+          </view>
+        </view>
+        <view :id="bottomAnchorId"></view>
+      </scroll-view>
+
+      <text v-if="errorText" class="chat-error">{{ errorText }}</text>
     </view>
 
     <view class="bottom-dock">
@@ -64,8 +111,12 @@
                 <view class="ios-switch-knob"></view>
               </view>
             </view>
-            <view class="send-button" @tap="noopSend">
-              <text class="send-label">发送</text>
+            <view
+              class="send-button"
+              :class="{ stop: generating, disabled: !generating && !canSend }"
+              @tap="generating ? stopGeneration() : sendMessage()"
+            >
+              <text class="send-label">{{ generating ? '停止' : '发送' }}</text>
             </view>
           </view>
         </view>
@@ -86,21 +137,163 @@
 </template>
 
 <script>
+import {
+  ChatStreamClient,
+  buildChatMessages,
+  createDefaultWsUrl,
+} from './backend'
+import {
+  clearSessionMessages,
+  createChatSession,
+  deleteChatSession,
+  getChatSessionById,
+  pushSessionMessage,
+  removeLastSessionMessage,
+  setActiveChatSession,
+  snapshotAppState,
+  syncChatSettingsFromStorage,
+  updateChatSettings,
+  updateLastSessionMessage,
+} from './state'
+
 export default {
   data() {
     return {
       sidebarOpen: false,
       message: '',
       ragEnabled: true,
-      thinkingEnabled: true,
-      historyList: [
-        { id: 1, title: '新建对话', time: '刚刚' },
-        { id: 2, title: '文档上传预览', time: '昨天' },
-        { id: 3, title: '故障定位分析', time: '2 天前' },
-      ],
+      thinkingEnabled: false,
+      historyList: [],
+      activeHistoryId: '',
+      connectionStatus: 'connecting',
+      generating: false,
+      activeRequestId: '',
+      errorText: '',
+      streamingSessionId: '',
+      scrollIntoView: '',
+      bottomAnchorId: 'chat-bottom',
+      client: null,
     }
   },
+  computed: {
+    currentSession() {
+      return this.historyList.find((item) => item.id === this.activeHistoryId) || null
+    },
+    messages() {
+      return this.currentSession?.messages || []
+    },
+    activeSessionTitle() {
+      return this.currentSession?.title || '新对话'
+    },
+    canSend() {
+      return Boolean(this.message.trim())
+    },
+    connectionStatusText() {
+      const map = {
+        connecting: '连接中',
+        connected: '已连接',
+        disconnected: '未连接',
+        error: '连接异常',
+      }
+      return map[this.connectionStatus] || this.connectionStatus
+    },
+  },
+  onLoad() {
+    syncChatSettingsFromStorage()
+    this.syncFromState()
+    this.initClient()
+  },
+  onShow() {
+    syncChatSettingsFromStorage()
+    this.syncFromState()
+  },
+  onUnload() {
+    this.client?.close()
+  },
   methods: {
+    syncFromState() {
+      const state = snapshotAppState()
+      this.historyList = state.chatSessions
+      this.activeHistoryId = state.activeSessionId
+      this.ragEnabled = Boolean(state.chatSettings.ragEnabled)
+      this.thinkingEnabled = Boolean(state.chatSettings.enableThinking)
+    },
+    initClient() {
+      this.client = new ChatStreamClient({
+        url: createDefaultWsUrl(),
+        handlers: {
+          onOpen: () => {
+            this.connectionStatus = 'connected'
+          },
+          onClose: () => {
+            this.connectionStatus = 'disconnected'
+          },
+          onStreamStart: () => {
+            this.generating = true
+          },
+          onChunk: ({ delta }) => {
+            const sessionId = this.streamingSessionId || this.activeHistoryId
+            const session = getChatSessionById(sessionId)
+            const lastMessage = session?.messages?.[session.messages.length - 1]
+            updateLastSessionMessage(sessionId, {
+              content: `${lastMessage?.content || ''}${delta}`,
+            })
+            this.syncFromState()
+            this.scrollToBottom()
+          },
+          onStreamEnd: ({ payload }) => {
+            if (this.streamingSessionId) {
+              updateLastSessionMessage(this.streamingSessionId, {
+                streaming: false,
+                finishReason: payload.finish_reason || '',
+              })
+            }
+            this.generating = false
+            this.activeRequestId = ''
+            this.streamingSessionId = ''
+            this.syncFromState()
+          },
+          onError: (error) => {
+            if (this.streamingSessionId) {
+              updateLastSessionMessage(this.streamingSessionId, {
+                streaming: false,
+                finishReason: 'error',
+              })
+            }
+            this.connectionStatus = 'error'
+            this.generating = false
+            this.activeRequestId = ''
+            this.streamingSessionId = ''
+            this.errorText = error.message || '对话请求失败'
+            this.syncFromState()
+          },
+        },
+      })
+
+      this.client.connect().catch((error) => {
+        this.connectionStatus = 'error'
+        this.errorText = error.message || '连接失败'
+      })
+    },
+    formatTime(timestamp) {
+      const diff = Date.now() - Number(timestamp || 0)
+      if (diff < 60 * 1000) return '刚刚'
+      if (diff < 60 * 60 * 1000) return `${Math.floor(diff / (60 * 1000))} 分钟前`
+      if (diff < 24 * 60 * 60 * 1000) return `${Math.floor(diff / (60 * 60 * 1000))} 小时前`
+      if (diff < 7 * 24 * 60 * 60 * 1000) return `${Math.floor(diff / (24 * 60 * 60 * 1000))} 天前`
+
+      const date = new Date(timestamp)
+      const month = `${date.getMonth() + 1}`.padStart(2, '0')
+      const day = `${date.getDate()}`.padStart(2, '0')
+      return `${month}-${day}`
+    },
+    scrollToBottom() {
+      const anchorId = `chat-bottom-${Date.now()}`
+      this.bottomAnchorId = anchorId
+      this.$nextTick(() => {
+        this.scrollIntoView = anchorId
+      })
+    },
     toggleSidebar() {
       this.sidebarOpen = !this.sidebarOpen
     },
@@ -108,24 +301,203 @@ export default {
       this.sidebarOpen = false
     },
     toggleRagMode() {
-      this.ragEnabled = !this.ragEnabled
+      updateChatSettings({ ragEnabled: !this.ragEnabled })
+      this.syncFromState()
     },
     toggleThinkingMode() {
-      this.thinkingEnabled = !this.thinkingEnabled
+      updateChatSettings({ enableThinking: !this.thinkingEnabled })
+      this.syncFromState()
+    },
+    startNewChat() {
+      createChatSession()
+      this.message = ''
+      this.errorText = ''
+      this.syncFromState()
+      this.closeSidebar()
+      this.scrollToBottom()
+    },
+    selectSession(sessionId) {
+      setActiveChatSession(sessionId)
+      this.errorText = ''
+      this.syncFromState()
+      this.closeSidebar()
+      this.scrollToBottom()
+    },
+    confirmDeleteSession(sessionId) {
+      const session = this.historyList.find((item) => item.id === sessionId)
+      if (!session) return
+
+      uni.showModal({
+        title: '删除对话',
+        content: `确认删除“${session.title}”吗？`,
+        confirmColor: '#4c72ff',
+        success: ({ confirm }) => {
+          if (!confirm) return
+          this.deleteSession(sessionId)
+        },
+      })
+    },
+    deleteSession(sessionId) {
+      if (this.streamingSessionId === sessionId) {
+        this.stopGeneration()
+      }
+      deleteChatSession(sessionId)
+      this.syncFromState()
+    },
+    sendMessage() {
+      const content = this.message.trim()
+      if (!content || this.generating || !this.currentSession) return
+
+      const sessionId = this.currentSession.id
+      this.errorText = ''
+      pushSessionMessage(sessionId, { role: 'user', content })
+      pushSessionMessage(sessionId, { role: 'assistant', content: '', streaming: true })
+      this.message = ''
+      this.streamingSessionId = sessionId
+      this.syncFromState()
+      this.scrollToBottom()
+
+      try {
+        this.activeRequestId = this.client.sendChat({
+          messages: buildChatMessages(
+            this.currentSession.messages.filter((item) => !item.streaming),
+            snapshotAppState().chatSettings.systemPrompt
+          ),
+          fileIds: this.currentSession.fileIds || [],
+          rag: {
+            enabled: this.ragEnabled,
+            top_k: Number(snapshotAppState().chatSettings.topK),
+          },
+          modelConfig: {
+            temperature: Number(snapshotAppState().chatSettings.temperature),
+            max_tokens: Number(snapshotAppState().chatSettings.maxTokens),
+            enable_thinking: this.thinkingEnabled,
+          },
+        })
+        this.generating = true
+      } catch (error) {
+        removeLastSessionMessage(sessionId)
+        this.streamingSessionId = ''
+        this.errorText = error.message || '发送失败'
+        this.syncFromState()
+      }
+    },
+    stopGeneration() {
+      this.client?.cancel(this.activeRequestId)
+      if (this.streamingSessionId) {
+        updateLastSessionMessage(this.streamingSessionId, {
+          streaming: false,
+          finishReason: 'cancelled',
+        })
+      }
+      this.generating = false
+      this.activeRequestId = ''
+      this.streamingSessionId = ''
+      this.syncFromState()
+    },
+    retryConnection() {
+      this.errorText = ''
+      this.connectionStatus = 'connecting'
+      this.client?.reconnect().catch((error) => {
+        this.connectionStatus = 'error'
+        this.errorText = error.message || '连接失败'
+      })
+    },
+    getLatestRound() {
+      if (this.messages.length < 2) return null
+      const assistantIndex = this.messages.length - 1
+      const userIndex = assistantIndex - 1
+      const assistantMessage = this.messages[assistantIndex]
+      const userMessage = this.messages[userIndex]
+
+      if (assistantMessage?.role !== 'assistant' || userMessage?.role !== 'user') return null
+      return {
+        assistantIndex,
+        assistantMessage,
+        userMessage,
+      }
+    },
+    retryLastRound() {
+      if (this.generating || !this.currentSession) return
+
+      const latestRound = this.getLatestRound()
+      if (!latestRound) return
+
+      const sessionId = this.currentSession.id
+      const requestMessages = this.currentSession.messages.filter((item, index) => (
+        index !== latestRound.assistantIndex && !item.streaming
+      ))
+
+      removeLastSessionMessage(sessionId)
+      pushSessionMessage(sessionId, { role: 'assistant', content: '', streaming: true })
+      this.streamingSessionId = sessionId
+      this.errorText = ''
+      this.syncFromState()
+      this.scrollToBottom()
+
+      try {
+        this.activeRequestId = this.client.sendChat({
+          messages: buildChatMessages(requestMessages, snapshotAppState().chatSettings.systemPrompt),
+          fileIds: this.currentSession.fileIds || [],
+          rag: {
+            enabled: this.ragEnabled,
+            top_k: Number(snapshotAppState().chatSettings.topK),
+          },
+          modelConfig: {
+            temperature: Number(snapshotAppState().chatSettings.temperature),
+            max_tokens: Number(snapshotAppState().chatSettings.maxTokens),
+            enable_thinking: this.thinkingEnabled,
+          },
+        })
+        this.generating = true
+      } catch (error) {
+        removeLastSessionMessage(sessionId)
+        this.streamingSessionId = ''
+        this.errorText = error.message || '重试失败'
+        this.syncFromState()
+      }
+    },
+    deleteLastRound() {
+      if (this.generating || !this.currentSession) return
+      const latestRound = this.getLatestRound()
+      if (!latestRound) return
+
+      removeLastSessionMessage(this.currentSession.id)
+      removeLastSessionMessage(this.currentSession.id)
+      this.syncFromState()
+    },
+    shouldShowMessageActions(message, index) {
+      if (this.generating || message.role !== 'assistant' || message.streaming) return false
+      if (index !== this.messages.length - 1) return false
+      return this.messages[index - 1]?.role === 'user'
+    },
+    copyMessage(message) {
+      const content = message.content?.trim()
+      if (!content) return
+      uni.setClipboardData({
+        data: content,
+      })
+    },
+    clearChat() {
+      if (!this.currentSession) return
+      if (this.generating) this.stopGeneration()
+      clearSessionMessages(this.currentSession.id)
+      this.errorText = ''
+      this.syncFromState()
+      this.scrollToBottom()
     },
     goPage(page) {
       const pageMap = {
-        chat: '/pages/index/index',
+        chat: '/pages/chat/index',
         upload: '/pages/upload/index',
         settings: '/pages/settings/index',
       }
       const url = pageMap[page]
-      if (!url || url === '/pages/index/index') {
+      if (!url || url === '/pages/chat/index') {
         return
       }
       uni.redirectTo({ url })
     },
-    noopSend() {},
   },
 }
 </script>
@@ -181,6 +553,30 @@ export default {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 18rpx;
+}
+
+.top-title-wrap {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+}
+
+.top-caption {
+  font-size: 18rpx;
+  letter-spacing: 6rpx;
+  color: rgba(120, 151, 255, 0.82);
+}
+
+.top-title {
+  font-size: 34rpx;
+  font-weight: 600;
+  color: #f4f7ff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .menu-button {
@@ -195,6 +591,7 @@ export default {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
+  flex-shrink: 0;
 }
 
 .menu-line {
@@ -208,10 +605,7 @@ export default {
   width: 60%;
 }
 
-.top-status {
-  transform: translateY(70rpx);
-  margin-right: -20rpx;
-  padding: 18rpx 24rpx;
+.sidebar-mask {
   position: fixed;
   inset: 0;
   z-index: 9;
@@ -240,6 +634,8 @@ export default {
   box-shadow: 24rpx 0 60rpx rgba(0, 0, 0, 0.3);
   transform: translateX(-100%);
   transition: transform 0.28s ease;
+  display: flex;
+  flex-direction: column;
 }
 
 .sidebar.open {
@@ -264,18 +660,57 @@ export default {
   color: rgba(188, 204, 241, 0.68);
 }
 
+.new-chat-button {
+  height: 72rpx;
+  margin-bottom: 22rpx;
+  border-radius: 22rpx;
+  background: linear-gradient(180deg, #6389ff 0%, #4c72ff 100%);
+  box-shadow: 0 16rpx 30rpx rgba(64, 101, 255, 0.28);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.new-chat-button-text {
+  font-size: 26rpx;
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.history-list {
+  flex: 1;
+  min-height: 0;
+}
+
 .history-card {
   margin-bottom: 18rpx;
   padding: 24rpx;
   border: 1rpx solid rgba(82, 120, 255, 0.16);
   border-radius: 24rpx;
   background: rgba(15, 25, 46, 0.72);
+  display: flex;
+  align-items: center;
+  gap: 18rpx;
+}
+
+.history-card.active {
+  border-color: rgba(102, 142, 255, 0.54);
+  background: rgba(36, 58, 108, 0.82);
+  box-shadow: inset 0 0 0 1rpx rgba(111, 151, 255, 0.18);
+}
+
+.history-main {
+  flex: 1;
+  min-width: 0;
 }
 
 .history-title {
   display: block;
   font-size: 28rpx;
   color: #eef3ff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .history-time {
@@ -283,6 +718,152 @@ export default {
   margin-top: 10rpx;
   font-size: 22rpx;
   color: rgba(165, 182, 224, 0.66);
+}
+
+.history-delete {
+  width: 88rpx;
+  height: 56rpx;
+  border-radius: 999rpx;
+  border: 1rpx solid rgba(255, 131, 131, 0.22);
+  background: rgba(83, 27, 40, 0.86);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.history-delete-text {
+  font-size: 22rpx;
+  color: #ffd8d8;
+}
+
+.chat-section {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  min-height: 0;
+  margin-top: 28rpx;
+  padding: 24rpx;
+  border: 1rpx solid rgba(87, 125, 255, 0.18);
+  border-radius: 32rpx;
+  background: linear-gradient(180deg, rgba(9, 19, 37, 0.92), rgba(7, 14, 28, 0.9));
+  display: flex;
+  flex-direction: column;
+}
+
+.chat-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+  margin-bottom: 20rpx;
+}
+
+.chat-status-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+}
+
+.status-dot {
+  width: 16rpx;
+  height: 16rpx;
+  border-radius: 50%;
+  background: rgba(148, 163, 184, 0.8);
+}
+
+.status-dot.connected {
+  background: #34d399;
+}
+
+.status-dot.connecting {
+  background: #fbbf24;
+}
+
+.status-dot.disconnected,
+.status-dot.error {
+  background: #f87171;
+}
+
+.chat-status-text,
+.toolbar-link {
+  font-size: 22rpx;
+  color: rgba(220, 230, 255, 0.88);
+}
+
+.chat-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+}
+
+.message-list {
+  flex: 1;
+  min-height: 0;
+}
+
+.message-row + .message-row {
+  margin-top: 24rpx;
+}
+
+.message-row.user {
+  align-items: flex-end;
+}
+
+.message-row.assistant {
+  align-items: flex-start;
+}
+
+.message-role {
+  margin-bottom: 10rpx;
+  font-size: 22rpx;
+  color: rgba(180, 198, 236, 0.68);
+}
+
+.message-bubble {
+  max-width: 100%;
+  padding: 22rpx 24rpx;
+  border-radius: 24rpx;
+  border: 1rpx solid rgba(98, 125, 192, 0.14);
+  background: rgba(14, 24, 45, 0.88);
+}
+
+.message-bubble.user {
+  background: linear-gradient(180deg, rgba(76, 114, 255, 0.9), rgba(63, 95, 214, 0.88));
+}
+
+.message-text {
+  white-space: pre-wrap;
+  word-break: break-all;
+  font-size: 28rpx;
+  line-height: 1.7;
+  color: #eef4ff;
+}
+
+.message-cursor {
+  margin-left: 6rpx;
+  color: #8fb0ff;
+}
+
+.message-actions {
+  display: flex;
+  gap: 18rpx;
+  margin-top: 14rpx;
+}
+
+.message-action {
+  font-size: 22rpx;
+  color: rgba(207, 220, 255, 0.9);
+}
+
+.message-action.danger {
+  color: #ffb0b0;
+}
+
+.chat-error {
+  margin-top: 16rpx;
+  font-size: 22rpx;
+  color: #ffb4b4;
 }
 
 .hero-section {
@@ -462,6 +1043,14 @@ export default {
   justify-content: center;
   flex-shrink: 0;
   border: 1rpx solid rgba(145, 173, 255, 0.2);
+}
+
+.send-button.stop {
+  background: linear-gradient(180deg, #ff7a7a 0%, #ef4444 100%);
+}
+
+.send-button.disabled {
+  opacity: 0.45;
 }
 
 .send-label {

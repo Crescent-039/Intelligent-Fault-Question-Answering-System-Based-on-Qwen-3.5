@@ -116,7 +116,7 @@ export default {
     },
     goPage(page) {
       const pageMap = {
-        chat: '/pages/index/index',
+        chat: '/pages/chat/index',
         upload: '/pages/upload/index',
         settings: '/pages/settings/index',
       }
