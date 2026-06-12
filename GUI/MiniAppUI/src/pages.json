@@ -1,0 +1,31 @@
+{
+	"pages": [ //pages数组中第一项表示应用启动页，参考：https://uniapp.dcloud.io/collocation/pages
+		{
+			"path": "pages/chat/index",
+			"style": {
+				"navigationStyle": "custom",
+				"backgroundColor": "#040914"
+			}
+		},
+		{
+			"path": "pages/upload/index",
+			"style": {
+				"navigationStyle": "custom",
+				"backgroundColor": "#040914"
+			}
+		},
+		{
+			"path": "pages/settings/index",
+			"style": {
+				"navigationStyle": "custom",
+				"backgroundColor": "#040914"
+			}
+		}
+	],
+	"globalStyle": {
+		"navigationBarTextStyle": "white",
+		"navigationBarTitleText": "文档问答系统",
+		"navigationBarBackgroundColor": "#040914",
+		"backgroundColor": "#040914"
+	}
+}
