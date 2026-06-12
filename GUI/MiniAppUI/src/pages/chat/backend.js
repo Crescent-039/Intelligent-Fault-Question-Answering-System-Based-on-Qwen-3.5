@@ -1,4 +1,4 @@
-const DEFAULT_HTTP_BASE_URL = 'http://127.0.0.1:11451'
+export const DEFAULT_HTTP_BASE_URL = 'http://127.0.0.1:11451'
 const DEFAULT_WS_PATH = '/ws/chat'
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 30_000
 
