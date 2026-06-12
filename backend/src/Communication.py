@@ -57,12 +57,15 @@ class RagChatService:
             return
         print("[LLM] 正在 warmup...")
         for _ in self.llm.stream_chat(
-                query="你好",
+                messages=[
+                    {"role": "system", "content": "你是一个助手，请简短回答。"},
+                    {"role": "user", "content": "你好"}
+                ],
                 context="",
-                system_prompt="你是一个助手，请简短回答。",
                 temperature=0.3,
                 max_tokens=100,
-                enable_thinking=False
+                enable_thinking=False,
+                rag_enabled=False
         ):
             pass
         if torch.cuda.is_available():
@@ -81,40 +84,83 @@ class RagChatService:
                 return msg.get("content", "")
         return ""
 
+    def normalize_messages(self, messages, max_turns=6):
+        normalized = []
+        system_message = None
+        for msg in messages or []:
+            role = msg.get("role")
+            content = (msg.get("content") or "").strip()
+            if role not in {"system", "user", "assistant"} or not content:
+                continue
+            if role == "system":
+                if system_message is None:
+                    system_message = {"role": "system", "content": content}
+                continue
+            normalized.append({"role": role, "content": content})
+        if max_turns > 0:
+            normalized = normalized[-max_turns * 2:]
+        return ([system_message] if system_message else []) + normalized
+
+    def build_retrieval_query(self, messages, max_user_messages=3):
+        user_messages = [
+            msg.get("content", "").strip()
+            for msg in messages
+            if msg.get("role") == "user" and (msg.get("content") or "").strip()
+        ]
+        return "\n".join(user_messages[-max_user_messages:])
+
     def get_citation_details(self, chunk_uids):
         return resolve_citation(chunk_uids)
 
     def send(self, messages, file_ids=None, rag_top_k=10, tem=0.3, max_tokens=2048, thinking=True, rag_enabled=True, stop_event=None):
         file_ids = file_ids or []
-        query = self.get_last_user_message(messages)
-        system_prompt = self.get_system_message(messages)
-
+        # query = self.get_last_user_message(messages)  # 废弃的无上下文对话
+        # system_prompt = self.get_system_message(messages)
+        normalized_messages = self.normalize_messages(messages)
+        retrieval_query = self.build_retrieval_query(normalized_messages)
         if not self.ready:
             raise RuntimeError("RAG 服务尚未初始化")
         if self.llm is None:
             raise RuntimeError("LLM 尚未初始化，无法执行问答")
+        if not retrieval_query:
+            raise ValueError("缺少有效的用户问题，无法执行问答")
         context = ""
         if rag_enabled:
             results = retrieve_by_file_ids(
-                query=query,
+                query=retrieval_query,
                 embedder=self.embedder,
                 file_ids=file_ids,
                 top_k=rag_top_k
             )
             context = build_context(results)
-        # 流式输出
-        for new_text in self.llm.stream_chat(
-                query=query,
-                context=context,
-                system_prompt=system_prompt,
-                temperature=tem,
-                max_tokens=max_tokens,
-                enable_thinking=thinking,
-                stop_event=stop_event
-        ):
-            if stop_event is not None and stop_event.is_set():
-                break
-            yield new_text
+            # 流式输出
+            for new_text in self.llm.stream_chat(
+                    messages=normalized_messages,
+                    context=context,
+                    temperature=tem,
+                    max_tokens=max_tokens,
+                    enable_thinking=thinking,
+                    stop_event=stop_event,
+                    rag_enabled=rag_enabled
+            ):
+                if stop_event is not None and stop_event.is_set():
+                    break
+                yield new_text
+
+        else:
+            context = ""
+            for new_text in self.llm.stream_chat(
+                    messages=normalized_messages,
+                    context=context,
+                    temperature=tem,
+                    max_tokens=max_tokens,
+                    enable_thinking=thinking,
+                    stop_event=stop_event,
+                    rag_enabled=False
+            ):
+                if stop_event is not None and stop_event.is_set():
+                    break
+                yield new_text
 
 
 if __name__ == "__main__":

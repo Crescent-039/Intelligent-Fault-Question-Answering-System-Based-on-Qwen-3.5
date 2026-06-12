@@ -65,14 +65,29 @@ function openFolderDialog() {
 
 function collectFiles(event) {
   const files = Array.from(event.target.files || [])
-  const newItems = files.map((file) => ({
-    file,
-    name: file.webkitRelativePath || file.name,
-    supported: isSupportedFile(file),
-    status: 'ready',
-    message: isSupportedFile(file) ? '待上传' : '格式不支持',
-  }))
-  selectedFiles.value = [...selectedFiles.value, ...newItems]
+  const supportedItems = []
+  const unsupportedNames = []
+
+  for (const file of files) {
+    const supported = isSupportedFile(file)
+    if (!supported) {
+      unsupportedNames.push(file.webkitRelativePath || file.name)
+      continue
+    }
+    supportedItems.push({
+      file,
+      name: file.webkitRelativePath || file.name,
+      supported: true,
+      status: 'ready',
+      message: '待上传',
+    })
+  }
+
+  if (supportedItems.length) selectedFiles.value = [...selectedFiles.value, ...supportedItems]
+  if (unsupportedNames.length) {
+    const preview = unsupportedNames.slice(0, 3).join('、')
+    notice.value = `已跳过 ${unsupportedNames.length} 个不支持的文件${preview ? `：${preview}` : ''}`
+  }
   event.target.value = ''
 }
 
@@ -203,14 +218,16 @@ async function uploadSelectedFiles() {
   uploading.value = true
   notice.value = ''
 
-  while (selectedFiles.value.some((item) => item.supported)) {
-    const item = selectedFiles.value.find((queuedItem) => queuedItem.supported)
-    await processQueuedFile(item)
-    selectedFiles.value = selectedFiles.value.filter((queuedItem) => queuedItem !== item)
+  try {
+    while (selectedFiles.value.some((item) => item.supported)) {
+      const item = selectedFiles.value.find((queuedItem) => queuedItem.supported)
+      await processQueuedFile(item)
+      selectedFiles.value = selectedFiles.value.filter((queuedItem) => queuedItem !== item)
+    }
+  } finally {
+    uploading.value = false
+    await loadFiles()
   }
-
-  uploading.value = false
-  await loadFiles()
 }
 
 async function waitForFileCompletion(fileId) {

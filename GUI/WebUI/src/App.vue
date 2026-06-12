@@ -70,17 +70,23 @@ const activeComponent = computed(() => {
     </aside>
 
     <section class="workspace" :class="`mode-${activeMode}`">
-      <header class="workspace-header glass-card">
-        <div>
-          <p class="eyebrow">Current Mode</p>
-          <h2>{{ activeModeInfo.label }}</h2>
-        </div>
-        <div class="protocol-pill">{{ protocolLabel }}</div>
-      </header>
+      <Transition name="mode-header-switch" mode="out-in">
+        <header class="workspace-header glass-card" :key="activeMode">
+          <div>
+            <p class="eyebrow">Current Mode</p>
+            <h2>{{ activeModeInfo.label }}</h2>
+          </div>
+          <div class="protocol-pill">{{ protocolLabel }}</div>
+        </header>
+      </Transition>
 
-        <KeepAlive>
-          <component :is="activeComponent" />
-        </KeepAlive>
+      <div class="workspace-content-shell">
+        <Transition name="mode-panel-switch" mode="out-in" appear>
+          <KeepAlive>
+            <component :is="activeComponent" :key="activeMode" class="workspace-panel" />
+          </KeepAlive>
+        </Transition>
+      </div>
     </section>
   </main>
 </template>

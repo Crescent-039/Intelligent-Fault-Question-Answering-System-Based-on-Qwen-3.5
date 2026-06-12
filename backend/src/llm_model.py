@@ -105,13 +105,13 @@ class LLMModel:
 
     def stream_chat(
             self,
-            query,
+            messages,
             context,
-            system_prompt=None,
             temperature=0.3,
             max_tokens=512,
             enable_thinking=False,
-            stop_event=None
+            stop_event=None,
+            rag_enabled=True
     ):
         """
         流式输出：返回一个生成器。
@@ -119,49 +119,92 @@ class LLMModel:
             for text in llm.stream_chat(query, context):
                 print(text, end="", flush=True)
         """
-        default_system_prompt = (
-            "你是一个文档问答助手。"
-            "请严格依据资料回答问题。"
-            "每份参考资料都有一个唯一的锚点标记（Anchor），格式为 [r数字]，例如 [r1043]。"
-            "你必须严格遵守以下规则："
-            "1、**仅基于参考资料回答**"  
-            "  只能使用上述资料中的信息，不得使用外部知识或凭空编造。"
-            "  若资料中没有足够信息，直接回复：“根据现有资料无法回答”。"
-            "2、**引用方式**"
-            "   当你依据或引用某个资料的内容时，必须在对应的句子末尾加上该资料的锚点标记，例如 [r1043]。"
-            "   如果一个观点同时来源于多个资料，可以合并标记，如 [r1043][r207]。"
-            "   回答中如需引用资料来源，请使用 Anchor 格式，例如 [r1043]，切记不要加引号。"
-            "3、**回答末尾的参考文档**"
-            "   在完整回答的最后，必须另起一行，列出本次回答中实际引用到的所有锚点，格式为：参考文档：[r1043], [r207]"
-            "   如果未引用任何资料（即回答“无法回答”时），则写：参考文档：无。"
-            "4、**回答风格**"
-            "    语言准确、简洁，重点突出。"
-            "   不要说明你正在“根据资料回答”，直接给出答案和引用。"
-            "如果资料中没有答案，请说“资料中没有提供相关信息”。"
-            "5、**条件限制**"
-            "类似[r1043]的anchor标记请在每一句回答的句号后输出。"
+        self_intro_prompt = (
+            """
+            当用户询问你的身份、能力、功能、使用方式，或表达类似“你是谁”“你能做什么”“介绍一下你自己”“怎么使用你”“你可以帮我什么”等意图时，你应主动介绍自己的功能。
+            介绍内容应包括：
+            1、你是一个 AI 助手。
+            2、你可以进行问答、总结、改写、翻译、解释概念、生成内容、辅助分析和提供建议。
+            3、如果当前启用了文档问答能力，你还可以基于用户提供或系统检索到的资料回答问题，并在需要时给出引用。
+            4、如果当前未启用文档问答能力，你会基于通用知识和用户提供的信息进行回答。
+            5、不要声称自己具备系统实际没有提供的能力，例如访问实时互联网、读取用户本地文件、执行外部操作等。
+            6、除非用户要求，否则在自我介绍时不要引用资料、不要输出参考文档、不要使用类似 [r1043] 的引用标记。
+            """
         )
-        if system_prompt:
-            final_system_prompt = (
-                    default_system_prompt
-                    + "\n\n用户自定义系统提示词：\n"
-                    + system_prompt
+        system_prompt = ""
+        conversation_messages = []
+        for message in messages or []:
+            role = message.get("role")
+            content = (message.get("content") or "").strip()
+            if role == "system" and not system_prompt:
+                system_prompt = content
+                continue
+            if role in {"user", "assistant"} and content:
+                conversation_messages.append({"role": role, "content": content})
+
+        if not conversation_messages or conversation_messages[-1]["role"] != "user":
+            raise ValueError("消息列表必须以用户消息结尾")
+
+        if rag_enabled:
+            default_system_prompt = (
+                f"""
+                你是一个文档问答助手。
+                请严格依据资料回答问题。
+                每份参考资料都有一个唯一的锚点标记（Anchor），格式为 [r数字]，例如 [r1043]。
+                你必须严格遵守以下规则：
+                1、**仅基于参考资料回答**
+                  只能使用上述资料中的信息，不得使用外部知识或凭空编造。
+                  若资料中没有足够信息，直接回复：“根据现有资料无法回答”。
+                2、**引用方式**"
+                   当你依据或引用某个资料的内容时，必须在对应的句子末尾加上该资料的锚点标记，例如 [r1043]。
+                   如果一个观点同时来源于多个资料，可以合并标记，如 [r1043][r207]。
+                   回答中如需引用资料来源，请使用 Anchor 格式，例如 [r1043]，切记不要加引号。
+                3、**回答末尾的参考文档**
+                   在完整回答的最后，必须另起一行，列出本次回答中实际引用到的所有锚点，格式为：参考文档：[r1043], [r207]
+                   如果未引用任何资料（即回答“无法回答”时），则写：参考文档：无。
+                4、**回答风格**
+                    语言准确、简洁，重点突出。
+                   不要说明你正在“根据资料回答”，直接给出答案和引用。
+                如果资料中没有答案，请说“资料中没有提供相关信息”。
+                5、**条件限制**
+                类似[r1043]的anchor标记请在每一句回答的句号后输出。
+                {self_intro_prompt}
+                特殊规则：
+                当用户是在询问你的身份、能力或使用方式时，可以直接介绍你的功能，不需要强行依据资料回答，也不需要引用资料，也不要使用类似 [r1043] 的引用标记。
+                """
             )
         else:
-            final_system_prompt = default_system_prompt
-        messages = [
-            {
-                "role": "system",
-                "content": final_system_prompt
-            },
-            {
-                "role": "user",
-                "content": f"资料如下：\n{context}\n\n问题：{query}"
-            }
+            default_system_prompt = (
+                f"""
+                你是一个专业、可靠的 AI 助手。
+                请根据用户的问题直接作答，要求：
+                1、回答应准确、清晰、简洁。
+                2、如果问题需要推理，请给出必要的推理过程，但避免冗长。
+                3、如果用户的问题信息不足，请主动说明缺少哪些信息，并给出合理的下一步建议。
+                4、如果你不确定答案，请明确说明不确定，不要编造。
+                5、除非用户要求，否则不要引用资料、不要输出参考文档、不要使用类似 [r1043] 的引用标记。
+                6、保持自然、友好、专业的表达风格。
+                {self_intro_prompt}
+                """
+            )
+        final_system_prompt = default_system_prompt
+        if system_prompt:
+            final_system_prompt += "\n\n用户自定义系统提示词：\n" + system_prompt
+
+        final_messages = [
+            {"role": "system", "content": final_system_prompt},
+            *conversation_messages
         ]
 
+        if rag_enabled and context:
+            last_user_content = final_messages[-1]["content"]
+            final_messages[-1] = {
+                "role": "user",
+                "content": f"参考资料如下：\n{context}\n\n请结合以上资料和对话历史回答用户当前问题。\n当前问题：{last_user_content}"
+            }
+
         text = self.tokenizer.apply_chat_template(
-            messages,
+            final_messages,
             tokenize=False,
             add_generation_prompt=True,
             enable_thinking=enable_thinking

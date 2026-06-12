@@ -34,7 +34,14 @@ function createSession(messages = null) {
     updatedAt: now,
     messages: sessionMessages,
     fileIds: [],
+    customTitle: false,
+    pinned: false,
   }
+}
+
+function syncSessionAutoTitle(session) {
+  if (!session || session.customTitle) return
+  session.title = createSessionTitle(session.messages)
 }
 
 function buildDefaultState() {
@@ -62,6 +69,8 @@ function loadState() {
         title: session.title || createSessionTitle(session.messages),
         messages: Array.isArray(session.messages) ? session.messages : [],
         fileIds: Array.isArray(session.fileIds) ? session.fileIds : [],
+        customTitle: Boolean(session.customTitle),
+        pinned: Boolean(session.pinned),
       }))
     : fallback.chatSessions
 
@@ -133,8 +142,25 @@ export function deleteChatSession(sessionId) {
 export function updateSessionTitle(sessionId) {
   const session = getChatSessionById(sessionId)
   if (!session) return
-  session.title = createSessionTitle(session.messages)
+  syncSessionAutoTitle(session)
   session.updatedAt = Date.now()
+  persistAppState()
+}
+
+export function renameChatSession(sessionId, title) {
+  const session = getChatSessionById(sessionId)
+  if (!session) return
+  const nextTitle = title?.trim()
+  session.customTitle = Boolean(nextTitle)
+  session.title = nextTitle || createSessionTitle(session.messages)
+  session.updatedAt = Date.now()
+  persistAppState()
+}
+
+export function toggleChatSessionPinned(sessionId) {
+  const session = getChatSessionById(sessionId)
+  if (!session) return
+  session.pinned = !session.pinned
   persistAppState()
 }
 
@@ -143,7 +169,7 @@ export function pushSessionMessage(sessionId, message) {
   if (!session) return
   session.messages.push(message)
   session.updatedAt = Date.now()
-  session.title = createSessionTitle(session.messages)
+  syncSessionAutoTitle(session)
   persistAppState()
 }
 
@@ -152,7 +178,7 @@ export function updateLastSessionMessage(sessionId, patch) {
   if (!session?.messages.length) return
   Object.assign(session.messages[session.messages.length - 1], patch)
   session.updatedAt = Date.now()
-  session.title = createSessionTitle(session.messages)
+  syncSessionAutoTitle(session)
   persistAppState()
 }
 
@@ -161,7 +187,7 @@ export function removeLastSessionMessage(sessionId) {
   if (!session?.messages.length) return
   session.messages.pop()
   session.updatedAt = Date.now()
-  session.title = createSessionTitle(session.messages)
+  syncSessionAutoTitle(session)
   persistAppState()
 }
 
@@ -170,6 +196,7 @@ export function clearSessionMessages(sessionId, clearedMessage) {
   if (!session) return
   session.messages = [{ role: 'assistant', content: clearedMessage }]
   session.updatedAt = Date.now()
+  session.customTitle = false
   session.title = '新对话'
   persistAppState()
 }

@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   DEFAULT_CLEARED_MESSAGE,
   DEFAULT_WELCOME_MESSAGE,
@@ -18,6 +18,8 @@ import {
   setActiveChatSession,
   updateChatSettings,
   updateLastSessionMessage,
+  renameChatSession,
+  toggleChatSessionPinned,
 } from '../state/appState'
 
 const input = ref('')
@@ -35,7 +37,15 @@ const pendingCitationRequestId = ref(null)
 
 const CITATION_FADE_EDGE = 10
 
-const sessions = computed(() => appState.chatSessions)
+const activeSessionMenuId = ref(null)
+const editingSessionId = ref(null)
+const editingTitle = ref('')
+const editingTitleInput = ref(null)
+const sessionMenuStyle = ref({})
+
+const pinnedSessions = computed(() => appState.chatSessions.filter((session) => session.pinned))
+const regularSessions = computed(() => appState.chatSessions.filter((session) => !session.pinned))
+const activeMenuSession = computed(() => appState.chatSessions.find((session) => session.id === activeSessionMenuId.value) || null)
 const currentSession = computed(() => getActiveChatSession())
 const messages = computed(() => currentSession.value?.messages || [])
 const chatSettings = computed(() => appState.chatSettings)
@@ -421,18 +431,81 @@ function startNewChat() {
 
 function selectSession(sessionId) {
   setActiveChatSession(sessionId)
+  activeSessionMenuId.value = null
   errorText.value = ''
   scrollToBottom()
+}
+
+function toggleSessionMenu(event, sessionId) {
+  if (activeSessionMenuId.value === sessionId) {
+    activeSessionMenuId.value = null
+    return
+  }
+
+  const rect = event.currentTarget.getBoundingClientRect()
+  sessionMenuStyle.value = {
+    position: 'fixed',
+    top: `${rect.bottom + 8}px`,
+    left: `${Math.max(12, Math.min(rect.right - 160, window.innerWidth - 172))}px`,
+  }
+  activeSessionMenuId.value = sessionId
+}
+
+function setEditingTitleInput(element) {
+  if (element) editingTitleInput.value = element
+}
+
+function startRenameSession(session) {
+  editingSessionId.value = session.id
+  editingTitle.value = session.title || ''
+  activeSessionMenuId.value = null
+}
+
+function submitRenameSession(sessionId) {
+  renameChatSession(sessionId, editingTitle.value)
+  editingSessionId.value = null
+  editingTitle.value = ''
+  errorText.value = ''
+}
+
+function cancelRenameSession() {
+  editingSessionId.value = null
+  editingTitle.value = ''
+}
+
+function togglePinnedSession(sessionId) {
+  toggleChatSessionPinned(sessionId)
+  activeSessionMenuId.value = null
+}
+
+function handleWindowClick() {
+  activeSessionMenuId.value = null
 }
 
 function removeSession(sessionId) {
   if (streamingSessionId.value === sessionId) stopGeneration()
   deleteChatSession(sessionId)
+  if (activeSessionMenuId.value === sessionId) activeSessionMenuId.value = null
+  if (editingSessionId.value === sessionId) cancelRenameSession()
   errorText.value = ''
 }
 
-onMounted(initClient)
-onBeforeUnmount(() => client?.close())
+watch(editingSessionId, async (value) => {
+  if (!value) return
+  await nextTick()
+  editingTitleInput.value?.focus()
+  editingTitleInput.value?.select?.()
+})
+
+onMounted(() => {
+  initClient()
+  window.addEventListener('click', handleWindowClick)
+})
+
+onBeforeUnmount(() => {
+  client?.close()
+  window.removeEventListener('click', handleWindowClick)
+})
 </script>
 
 <template>
@@ -448,20 +521,78 @@ onBeforeUnmount(() => client?.close())
         </div>
 
         <div class="session-list">
-          <button
-            v-for="session in sessions"
+          <p v-if="pinnedSessions.length" class="session-group-label">已置顶</p>
+          <div
+            v-for="session in pinnedSessions"
             :key="session.id"
             class="session-item"
-            :class="{ active: currentSession?.id === session.id }"
-            @click="selectSession(session.id)"
+            :class="{ active: currentSession?.id === session.id, editing: editingSessionId === session.id }"
           >
-            <div class="session-item-main">
-              <strong>{{ session.title }}</strong>
-              <span class="muted session-time">{{ new Date(session.updatedAt).toLocaleString() }}</span>
+            <button class="session-select" @click="selectSession(session.id)">
+              <div class="session-item-main">
+                <div v-if="editingSessionId === session.id" class="session-title-editor" @click.stop>
+                  <input
+                    :ref="setEditingTitleInput"
+                    v-model="editingTitle"
+                    class="session-title-input"
+                    maxlength="40"
+                    @click.stop
+                    @keydown.enter.prevent="submitRenameSession(session.id)"
+                    @keydown.esc.prevent="cancelRenameSession"
+                    @blur="submitRenameSession(session.id)"
+                  />
+                </div>
+                <strong v-else>
+                  <span class="session-pin-mark">置顶</span>{{ session.title }}
+                </strong>
+                <span class="muted session-time">{{ new Date(session.updatedAt).toLocaleString() }}</span>
+              </div>
+            </button>
+            <div class="session-item-actions">
+              <button class="session-menu-trigger" @click.stop="toggleSessionMenu($event, session.id)">•••</button>
             </div>
-            <button class="ghost-btn small" @click.stop="removeSession(session.id)">删除</button>
-          </button>
+          </div>
+
+          <p v-if="regularSessions.length" class="session-group-label">最近对话</p>
+          <div
+            v-for="session in regularSessions"
+            :key="session.id"
+            class="session-item"
+            :class="{ active: currentSession?.id === session.id, editing: editingSessionId === session.id }"
+          >
+            <button class="session-select" @click="selectSession(session.id)">
+              <div class="session-item-main">
+                <div v-if="editingSessionId === session.id" class="session-title-editor" @click.stop>
+                  <input
+                    :ref="setEditingTitleInput"
+                    v-model="editingTitle"
+                    class="session-title-input"
+                    maxlength="40"
+                    @click.stop
+                    @keydown.enter.prevent="submitRenameSession(session.id)"
+                    @keydown.esc.prevent="cancelRenameSession"
+                    @blur="submitRenameSession(session.id)"
+                  />
+                </div>
+                <strong v-else>{{ session.title }}</strong>
+                <span class="muted session-time">{{ new Date(session.updatedAt).toLocaleString() }}</span>
+              </div>
+            </button>
+            <div class="session-item-actions">
+              <button class="session-menu-trigger" @click.stop="toggleSessionMenu($event, session.id)">•••</button>
+            </div>
+          </div>
         </div>
+
+        <Teleport to="body">
+          <Transition name="session-menu-fade">
+            <div v-if="activeMenuSession" class="session-menu teleported-session-menu" :style="sessionMenuStyle" @click.stop>
+              <button class="session-menu-item" @click="startRenameSession(activeMenuSession)">重命名</button>
+              <button class="session-menu-item" @click="togglePinnedSession(activeMenuSession.id)">{{ activeMenuSession.pinned ? '取消置顶' : '置顶' }}</button>
+              <button class="session-menu-item danger" @click="removeSession(activeMenuSession.id)">删除</button>
+            </div>
+          </Transition>
+        </Teleport>
       </aside>
 
       <div class="chat-main">
@@ -487,43 +618,45 @@ onBeforeUnmount(() => client?.close())
         </div>
 
         <div ref="scrollArea" class="message-list">
-          <article v-for="(message, index) in renderMessages" :key="index" class="message" :class="message.role">
-            <div class="message-role">{{ message.role === 'user' ? '你' : '助手' }}</div>
-            <div class="message-bubble">
-              <div class="message-content-stack">
-                <details v-if="message.parsed.thinkingContent" class="thinking-block" :open="message.streaming">
-                  <summary>
-                    <span class="thinking-title">Thinking Process</span>
-                    <span class="thinking-hint">点击展开/收起</span>
-                  </summary>
-                  <div class="thinking-body">{{ message.parsed.thinkingContent }}</div>
-                </details>
+          <TransitionGroup name="chat-bubble-fade" tag="div" class="message-list-inner">
+            <article v-for="(message, index) in renderMessages" :key="index" class="message" :class="message.role">
+              <div class="message-role">{{ message.role === 'user' ? '你' : '助手' }}</div>
+              <div class="message-bubble">
+                <div class="message-content-stack">
+                  <details v-if="message.parsed.thinkingContent" class="thinking-block" :open="message.streaming">
+                    <summary>
+                      <span class="thinking-title">Thinking Process</span>
+                      <span class="thinking-hint">点击展开/收起</span>
+                    </summary>
+                    <div class="thinking-body">{{ message.parsed.thinkingContent }}</div>
+                  </details>
 
-                <div v-if="message.parsed.answerContent" class="answer-content">
-                  <template v-for="(segment, segmentIndex) in message.parsed.answerSegments" :key="`${index}-${segmentIndex}`">
-                    <span v-if="segment.type === 'text'">{{ segment.text }}</span>
-                    <button
-                      v-else
-                      class="citation-chip"
-                      :disabled="message.streaming"
-                      @click="openCitationDetail(segment.chunkUid)"
-                    >
-                      {{ segment.token }}
-                    </button>
-                  </template>
-                  <span v-if="message.streaming" class="cursor"></span>
+                  <div v-if="message.parsed.answerContent" class="answer-content">
+                    <template v-for="(segment, segmentIndex) in message.parsed.answerSegments" :key="`${index}-${segmentIndex}`">
+                      <span v-if="segment.type === 'text'">{{ segment.text }}</span>
+                      <button
+                        v-else
+                        class="citation-chip"
+                        :disabled="message.streaming"
+                        @click="openCitationDetail(segment.chunkUid)"
+                      >
+                        {{ segment.token }}
+                      </button>
+                    </template>
+                    <span v-if="message.streaming" class="cursor"></span>
+                  </div>
+
+                  <div v-else-if="message.streaming" class="typing">正在思考...</div>
                 </div>
-
-                <div v-else-if="message.streaming" class="typing">正在思考...</div>
               </div>
-            </div>
 
-            <div v-if="shouldShowMessageActions(message, index)" class="message-actions">
-              <button class="ghost-btn small" @click="copyAnswerContent(message)">复制</button>
-              <button class="ghost-btn small" @click="retryLastRound">重试</button>
-              <button class="danger-btn small" @click="deleteLastRound">删除</button>
-            </div>
-          </article>
+              <div v-if="shouldShowMessageActions(message, index)" class="message-actions">
+                <button class="ghost-btn small" @click="copyAnswerContent(message)">复制</button>
+                <button class="ghost-btn small" @click="retryLastRound">重试</button>
+                <button class="danger-btn small" @click="deleteLastRound">删除</button>
+              </div>
+            </article>
+          </TransitionGroup>
         </div>
 
         <p v-if="errorText" class="notice error chat-error">{{ errorText }}</p>
@@ -638,5 +771,17 @@ onBeforeUnmount(() => client?.close())
 
 .citation-detail-char {
   transition: opacity 0.28s ease;
+}
+
+.session-group-label {
+  margin: 0.75rem 0 0.35rem;
+  font-size: 0.75rem;
+  color: rgba(148, 163, 184, 0.9);
+}
+
+.teleported-session-menu {
+  position: fixed;
+  z-index: 1200;
+  min-width: 160px;
 }
 </style>

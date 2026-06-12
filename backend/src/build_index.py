@@ -130,6 +130,8 @@ class Builder:
         parts[idx] = "shared"
         file_shared_path = Path(*parts)
         print(file_shared_path)
+        print(file_meta.get("chunks_path"))
+        print(file_meta.get("index_path"))
         deleted_paths = [
             self.remove_path(file_tmp_path),
             self.remove_path(file_shared_path),
