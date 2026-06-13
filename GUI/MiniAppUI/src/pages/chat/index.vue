@@ -68,17 +68,36 @@
         >
           <view class="message-role">{{ item.role === 'user' ? '你' : '助手' }}</view>
           <view class="message-bubble" :class="item.role">
-            <view v-if="item.role === 'assistant' && item.answerSegments.length" class="message-rich-text">
-              <template v-for="(segment, segmentIndex) in item.answerSegments" :key="`${item.id || index}-${segmentIndex}`">
-                <text v-if="segment.type === 'text'" class="message-text">{{ segment.text }}</text>
-                <text
-                  v-else
-                  class="citation-chip"
-                  :class="{ disabled: item.streaming }"
-                  @tap="item.streaming ? null : openCitationDetail(segment.chunkUid)"
-                >{{ segment.token }}</text>
-              </template>
-              <text v-if="item.streaming" class="message-cursor">|</text>
+            <view v-if="item.role === 'assistant'" class="message-content-stack">
+              <view v-if="item.parsed.thinkingContent" class="thinking-block">
+                <view class="thinking-header" @tap="toggleThinkingBlock(item)">
+                  <view>
+                    <text class="thinking-title">思考过程</text>
+                    <text class="thinking-hint">{{ item.thinkingCollapsed ? '点击展开' : '点击收起' }}</text>
+                  </view>
+                  <text class="thinking-arrow" :class="{ collapsed: item.thinkingCollapsed }">⌃</text>
+                </view>
+                <view v-if="!item.thinkingCollapsed" class="thinking-body">
+                  <text class="thinking-text">{{ item.parsed.thinkingContent }}</text>
+                  <text v-if="item.streaming && !item.parsed.answerContent" class="message-cursor">|</text>
+                </view>
+              </view>
+              <view v-if="item.parsed.answerContent" class="message-rich-text">
+                <template v-for="(segment, segmentIndex) in item.parsed.answerSegments" :key="`${item.id || index}-${segmentIndex}`">
+                  <text v-if="segment.type === 'text'" class="message-text">{{ segment.text }}</text>
+                  <text
+                    v-else
+                    class="citation-chip"
+                    :class="{ disabled: item.streaming }"
+                    @tap="item.streaming ? null : openCitationDetail(segment.chunkUid)"
+                  >{{ segment.token }}</text>
+                </template>
+                <text v-if="item.streaming" class="message-cursor">|</text>
+              </view>
+              <view v-else-if="item.streaming && !item.parsed.thinkingContent" class="message-text-wrap">
+                <text class="message-text">正在思考...</text>
+                <text class="message-cursor">|</text>
+              </view>
             </view>
             <view v-else class="message-text-wrap">
               <text class="message-text">{{ item.content || (item.streaming ? '正在思考...' : '') }}</text>
@@ -146,7 +165,14 @@
           <text class="citation-meta">chunk_uid：{{ citationDetail.chunk_uid }}</text>
           <text v-if="citationDetail.source" class="citation-meta">来源：{{ citationDetail.source }}</text>
           <text v-if="citationDetail.doc_id" class="citation-meta">doc_id：{{ citationDetail.doc_id }}</text>
-          <text class="citation-content">{{ citationDetail.text }}</text>
+          <view class="citation-content">
+            <text
+              v-for="(char, charIndex) in buildCitationFadeChars(citationDetail.text)"
+              :key="`${citationDetail.chunk_uid}-${charIndex}`"
+              class="citation-char"
+              :style="{ opacity: char.opacity }"
+            >{{ char.char }}</text>
+          </view>
         </view>
       </view>
     </view>
@@ -208,6 +234,7 @@ export default {
       citationError: '',
       citationDetail: null,
       pendingCitationRequestId: '',
+      thinkingCollapseMap: {},
     }
   },
   computed: {
@@ -220,12 +247,18 @@ export default {
     visibleMessages() {
       return this.messages
         .filter((item) => item.content !== DEFAULT_WELCOME_MESSAGE)
-        .map((item) => ({
-          ...item,
-          answerSegments: item.role === 'assistant'
-            ? this.parseAnswerSegments(item.content || '')
-            : [{ type: 'text', text: item.content || '' }],
-        }))
+        .map((item) => {
+          const parsed = item.role === 'assistant'
+            ? this.parseMessageContent(item.content || '')
+            : null
+          return {
+            ...item,
+            parsed,
+            thinkingCollapsed: parsed
+              ? this.isThinkingCollapsed(item, parsed)
+              : false,
+          }
+        })
     },
     activeSessionTitle() {
       return this.currentSession?.title || '新对话'
@@ -269,6 +302,66 @@ export default {
       }
       if (lastIndex < content.length) segments.push({ type: 'text', text: content.slice(lastIndex) })
       return segments.length ? segments : [{ type: 'text', text: content }]
+    },
+    parseMessageContent(content = '') {
+      const startMatch = /(?:Thinking Process:|<think>)/i.exec(content)
+      if (!startMatch) {
+        return { thinkingContent: '', answerContent: content, answerSegments: this.parseAnswerSegments(content) }
+      }
+      const startIndex = startMatch.index
+      const thinkingStart = startIndex + startMatch[0].length
+      const endToken = '</think>'
+      const endIndex = content.indexOf(endToken, thinkingStart)
+      const answerBeforeThinking = content.slice(0, startIndex)
+      if (endIndex === -1) {
+        const answerContent = answerBeforeThinking.trimEnd()
+        return {
+          thinkingContent: content.slice(thinkingStart).trimStart(),
+          answerContent,
+          answerSegments: this.parseAnswerSegments(answerContent),
+        }
+      }
+      const answerContent = `${answerBeforeThinking}${content.slice(endIndex + endToken.length)}`.trim()
+      return {
+        thinkingContent: content.slice(thinkingStart, endIndex).trim(),
+        answerContent,
+        answerSegments: this.parseAnswerSegments(answerContent),
+      }
+    },
+    isThinkingCollapsed(message, parsed) {
+      if (!parsed?.thinkingContent) return false
+      if (message.streaming) return false
+      const cached = this.thinkingCollapseMap[message.id]
+      return typeof cached === 'boolean' ? cached : true
+    },
+    toggleThinkingBlock(message) {
+      if (!message?.parsed?.thinkingContent) return
+      this.thinkingCollapseMap = {
+        ...this.thinkingCollapseMap,
+        [message.id]: !this.isThinkingCollapsed(message, message.parsed),
+      }
+    },
+    buildCitationFadeChars(text = '') {
+      const chars = Array.from(text || '')
+      const length = chars.length
+      if (!length) return []
+
+      const edge = Math.min(15, Math.ceil(length / 2))
+      const denominator = Math.max(edge - 1, 1)
+
+      return chars.map((char, index) => {
+        let opacity = 1
+        if (index < edge) opacity = index / denominator
+        if (index >= length - edge) {
+          const tailDistance = length - index
+          const tailOpacity = (tailDistance - 1) / denominator
+          opacity = Math.min(opacity, tailOpacity)
+        }
+        return {
+          char,
+          opacity: Number(opacity.toFixed(3)),
+        }
+      })
     },
     closeCitationPopup() {
       this.citationPopupVisible = false
@@ -557,7 +650,9 @@ export default {
       return this.visibleMessages[index - 1]?.role === 'user'
     },
     copyMessage(message) {
-      const content = message.content?.trim()
+      const content = message.role === 'assistant'
+        ? message.parsed?.answerContent?.trim()
+        : message.content?.trim()
       if (!content) return
       uni.setClipboardData({
         data: content,
@@ -856,11 +951,72 @@ export default {
   box-shadow: 0 12rpx 28rpx rgba(0, 0, 0, 0.14);
 }
 
+.message-content-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16rpx;
+}
+
 .message-rich-text,
 .message-text-wrap {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;
+}
+
+.thinking-block {
+  border: 1rpx solid rgba(126, 150, 209, 0.18);
+  border-radius: 20rpx;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.thinking-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+  padding: 18rpx 20rpx;
+}
+
+.thinking-title,
+.thinking-hint,
+.thinking-text,
+.thinking-arrow {
+  display: block;
+}
+
+.thinking-title {
+  font-size: 24rpx;
+  font-weight: 600;
+  color: #dbe5ff;
+}
+
+.thinking-hint {
+  margin-top: 6rpx;
+  font-size: 20rpx;
+  color: rgba(173, 191, 234, 0.68);
+}
+
+.thinking-arrow {
+  font-size: 24rpx;
+  color: rgba(173, 191, 234, 0.78);
+  transform: rotate(0deg);
+}
+
+.thinking-arrow.collapsed {
+  transform: rotate(180deg);
+}
+
+.thinking-body {
+  padding: 0 20rpx 20rpx;
+}
+
+.thinking-text {
+  white-space: pre-wrap;
+  word-break: break-all;
+  font-size: 24rpx;
+  line-height: 1.7;
+  color: rgba(219, 229, 255, 0.82);
 }
 
 .citation-chip {
@@ -1187,7 +1343,8 @@ export default {
 .citation-loading,
 .citation-error,
 .citation-meta,
-.citation-content {
+.citation-content,
+.citation-char {
   display: block;
 }
 
@@ -1197,5 +1354,18 @@ export default {
 .citation-error { font-size: 24rpx; color: #ffb4b4; }
 .citation-body { max-height: 56vh; }
 .citation-meta { margin-bottom: 12rpx; font-size: 22rpx; color: rgba(180, 198, 236, 0.72); }
-.citation-content { margin-top: 12rpx; font-size: 26rpx; line-height: 1.8; color: #eef4ff; white-space: pre-wrap; }
+.citation-content {
+  margin-top: 12rpx;
+  padding: 20rpx 22rpx;
+  border-radius: 20rpx;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1rpx solid rgba(255, 255, 255, 0.06);
+  font-size: 26rpx;
+  line-height: 1.8;
+  color: #eef4ff;
+}
+.citation-char {
+  display: inline;
+  white-space: pre-wrap;
+}
 </style>
