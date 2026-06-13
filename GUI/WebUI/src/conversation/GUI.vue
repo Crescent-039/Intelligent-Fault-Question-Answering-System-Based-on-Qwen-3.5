@@ -419,6 +419,10 @@ function retryConnection() {
   client?.reconnect()
 }
 
+function toggleRagEnabled() {
+  updateChatSettings({ ragEnabled: !chatSettings.value.ragEnabled })
+}
+
 function toggleThinking() {
   updateChatSettings({ enableThinking: !chatSettings.value.enableThinking })
 }
@@ -602,6 +606,14 @@ onBeforeUnmount(() => {
             <h2>LLM 流式对话</h2>
           </div>
           <div class="chat-toolbar">
+            <button
+              class="thinking-toggle"
+              :class="{ active: chatSettings.ragEnabled }"
+              @click="toggleRagEnabled"
+            >
+              <span class="thinking-toggle-dot"></span>
+              <span>{{ chatSettings.ragEnabled ? 'RAG 搜索已开启' : 'RAG 搜索已关闭' }}</span>
+            </button>
             <button
               class="thinking-toggle"
               :class="{ active: chatSettings.enableThinking }"
