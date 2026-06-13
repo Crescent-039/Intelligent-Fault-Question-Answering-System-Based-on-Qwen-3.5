@@ -166,6 +166,8 @@ h3 { margin-bottom: 0; font-size: 17px; }
   display: flex;
   flex: 1 1 auto;
   min-height: 0;
+  overflow: hidden;
+  isolation: isolate;
 }
 
 .workspace-panel {
@@ -608,12 +610,12 @@ h3 { margin-bottom: 0; font-size: 17px; }
 }
 
 .app-shell.mode-upload {
-  height: auto;
+  height: 100vh;
   min-height: 100vh;
 }
 
 .workspace.mode-upload {
-  height: auto;
+  height: calc(100vh - 48px);
   min-height: calc(100vh - 48px);
 }
 
@@ -845,15 +847,14 @@ h3 { margin-bottom: 0; font-size: 17px; }
 
 .mode-panel-switch-enter-active,
 .mode-panel-switch-leave-active {
-  transition: opacity 0.32s ease, transform 0.32s ease, filter 0.32s ease;
+  transition: opacity 0.24s ease, transform 0.24s ease;
   width: 100%;
 }
 
 .mode-panel-switch-enter-from,
 .mode-panel-switch-leave-to {
   opacity: 0;
-  transform: translateY(18px) scale(0.985);
-  filter: blur(12px);
+  transform: translateY(10px) scale(0.992);
 }
 
 .mode-panel-switch-enter-to,
