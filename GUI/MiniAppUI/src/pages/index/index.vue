@@ -5,7 +5,7 @@
 <script>
 export default {
   onLoad() {
-    uni.redirectTo({
+    uni.switchTab({
       url: '/pages/chat/index',
     })
   },

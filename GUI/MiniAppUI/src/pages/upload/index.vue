@@ -27,7 +27,7 @@
 
         <view
           v-for="item in uploadedFiles"
-          :key="item.file_id"
+          :key="`${item.file_id}-${getStatusClass(item)}`"
           class="library-card"
         >
           <text class="library-name">{{ item.filename }}</text>
@@ -38,7 +38,7 @@
             <view class="progress-track">
               <view
                 class="progress-fill"
-                :class="item.index_status"
+                :class="getStatusClass(item)"
                 :style="{ width: `${getFakeProgress(item)}%` }"
               ></view>
             </view>
@@ -46,8 +46,8 @@
           </view>
 
           <view class="library-actions">
-            <view class="status-pill" :class="item.index_status">
-              <text class="status-pill-text">{{ statusText[item.index_status] || item.index_status }}</text>
+            <view class="status-pill" :class="getStatusClass(item)">
+              <text class="status-pill-text">{{ getStatusText(item) }}</text>
             </view>
             <view class="library-action-button" @tap="refreshStatus(item)">
               <text class="library-action-text">{{ item.refreshing ? '查询中' : '状态' }}</text>
@@ -112,7 +112,6 @@
         </view>
       </view>
     </view>
-
     <view class="page-switcher">
       <view class="page-tab" @tap="goPage('chat')">
         <text class="page-tab-text">流式对话</text>
@@ -129,6 +128,7 @@
 
 <script>
 import {
+  cacheFiles,
   DEFAULT_USER_ID,
   SUPPORTED_EXTENSIONS,
   deleteFile,
@@ -136,16 +136,19 @@ import {
   fetchFiles,
   isSupportedFile,
   normalizeUploadError,
+  readCachedFiles,
   uploadFile,
 } from './backend'
 
 const ACTIVE_STATUSES = ['pending', 'downloading', 'downloaded', 'preprocessing', 'indexing']
 const PROGRESS_STATUSES = [...ACTIVE_STATUSES, 'done', 'failed']
+const FILE_NAME_CACHE_KEY = 'miniapp_upload_file_name_map'
 
 export default {
   data() {
     return {
       sidebarOpen: false,
+      hasLoadedOnce: false,
       userId: DEFAULT_USER_ID,
       supportedFormatText: SUPPORTED_EXTENSIONS.join(' / '),
       loading: false,
@@ -156,6 +159,7 @@ export default {
       progressNow: Date.now(),
       pollingTimer: null,
       progressTimer: null,
+      localFileNameMap: {},
       previousStatusMap: Object.create(null),
       progressStartMap: Object.create(null),
       queueStatusText: {
@@ -182,7 +186,19 @@ export default {
     },
   },
   onLoad() {
-    this.loadFiles()
+    this.hydrateLocalFileNames()
+    this.hydrateCachedFiles()
+  },
+  onReady() {
+    setTimeout(() => {
+      this.loadFiles()
+      this.hasLoadedOnce = true
+    }, 80)
+  },
+  onShow() {
+    if (this.hasLoadedOnce) {
+      this.loadFiles()
+    }
   },
   onUnload() {
     this.stopPolling()
@@ -245,6 +261,59 @@ export default {
         this.notice = `已跳过 ${unsupportedNames.length} 个不支持的文件${preview ? `：${preview}` : ''}`
       }
     },
+    hydrateLocalFileNames() {
+      const cachedMap = uni.getStorageSync(FILE_NAME_CACHE_KEY)
+      this.localFileNameMap = cachedMap && typeof cachedMap === 'object' && !Array.isArray(cachedMap) ? cachedMap : {}
+    },
+    rememberLocalFileName(fileId, filename) {
+      if (!fileId || !filename || this.localFileNameMap[fileId] === filename) {
+        return
+      }
+      this.localFileNameMap = { ...this.localFileNameMap, [fileId]: filename }
+      uni.setStorageSync(FILE_NAME_CACHE_KEY, this.localFileNameMap)
+    },
+    removeLocalFileName(fileId) {
+      if (!fileId || !this.localFileNameMap[fileId]) {
+        return
+      }
+      const nextMap = { ...this.localFileNameMap }
+      delete nextMap[fileId]
+      this.localFileNameMap = nextMap
+      uni.setStorageSync(FILE_NAME_CACHE_KEY, nextMap)
+    },
+    applyLocalFileName(file) {
+      const filename = this.localFileNameMap[file?.file_id]
+      return filename ? { ...file, filename } : file
+    },
+    getNormalizedStatus(status) {
+      return typeof status === 'string' ? status.trim().toLowerCase() : ''
+    },
+    getStatusClass(file) {
+      return this.getNormalizedStatus(file?.index_status)
+    },
+    getStatusText(file) {
+      const status = this.getStatusClass(file)
+      return this.statusText[status] || file?.index_status || ''
+    },
+    patchUploadedFile(fileId, patch) {
+      this.uploadedFiles = this.uploadedFiles.map((item) => (
+        item.file_id === fileId
+          ? { ...item, ...patch, index_status: this.getNormalizedStatus(patch.index_status ?? item.index_status) }
+          : item
+      ))
+    },
+    hydrateCachedFiles() {
+      const cachedFiles = readCachedFiles()
+      if (!cachedFiles.length) {
+        return
+      }
+      this.uploadedFiles = cachedFiles.map((file) => ({
+        ...this.applyLocalFileName(file),
+        refreshing: false,
+        deleting: false,
+      }))
+      this.syncPollingState(this.uploadedFiles)
+    },
     async loadFiles() {
       if (this.loading) {
         return
@@ -253,8 +322,10 @@ export default {
       this.loading = true
       try {
         const files = await fetchFiles(this.userId)
-        this.handleStatusTransitions(files)
-        this.uploadedFiles = files.map((file) => ({
+        const displayFiles = files.map((file) => this.applyLocalFileName(file))
+        cacheFiles(displayFiles)
+        this.handleStatusTransitions(displayFiles)
+        this.uploadedFiles = displayFiles.map((file) => ({
           ...file,
           refreshing: false,
           deleting: false,
@@ -268,8 +339,8 @@ export default {
     },
     handleStatusTransitions(files) {
       files.forEach((file) => {
-        const previousStatus = this.previousStatusMap[file.file_id]
-        const currentStatus = file.index_status
+        const previousStatus = this.getNormalizedStatus(this.previousStatusMap[file.file_id])
+        const currentStatus = this.getNormalizedStatus(file.index_status)
 
         if (previousStatus !== currentStatus) {
           if (previousStatus !== 'downloaded' && currentStatus === 'downloaded') {
@@ -287,13 +358,14 @@ export default {
       })
     },
     shouldShowProgress(file) {
-      return PROGRESS_STATUSES.includes(file.index_status)
+      return PROGRESS_STATUSES.includes(this.getStatusClass(file))
     },
     getFakeProgress(file) {
-      if (file.index_status === 'done' || file.index_status === 'failed') {
+      const status = this.getStatusClass(file)
+      if (status === 'done' || status === 'failed') {
         return 100
       }
-      if (!ACTIVE_STATUSES.includes(file.index_status)) {
+      if (!ACTIVE_STATUSES.includes(status)) {
         return 0
       }
 
@@ -303,11 +375,11 @@ export default {
       return Math.min(Math.round(8 + easedRatio * 91), 99)
     },
     hasActiveFiles(files) {
-      return files.some((file) => ACTIVE_STATUSES.includes(file.index_status))
+      return files.some((file) => ACTIVE_STATUSES.includes(this.getStatusClass(file)))
     },
     syncProgressTimer(files = this.uploadedFiles) {
       files.forEach((file) => {
-        if (ACTIVE_STATUSES.includes(file.index_status) && !this.progressStartMap[file.file_id]) {
+        if (ACTIVE_STATUSES.includes(this.getStatusClass(file)) && !this.progressStartMap[file.file_id]) {
           this.progressStartMap[file.file_id] = Date.now()
         }
       })
@@ -389,6 +461,7 @@ export default {
       try {
         const uploadResult = await uploadFile(item, this.userId)
         const fileId = uploadResult.file_id || item.name
+        this.rememberLocalFileName(fileId, item.name)
 
         item.status = 'indexing'
         item.message = uploadResult.message || '上传成功，等待预处理'
@@ -429,16 +502,20 @@ export default {
         return
       }
 
-      file.refreshing = true
+      this.patchUploadedFile(file.file_id, { refreshing: true })
       try {
         const result = await fetchFileStatus(file.file_id)
-        file.index_status = result.index_status
-        file.message = result.message
+        this.patchUploadedFile(file.file_id, {
+          index_status: result.index_status,
+          message: result.message,
+          refreshing: false,
+        })
         this.syncPollingState(this.uploadedFiles)
       } catch (error) {
-        file.message = error.message || '状态刷新失败'
-      } finally {
-        file.refreshing = false
+        this.patchUploadedFile(file.file_id, {
+          message: error.message || '状态刷新失败',
+          refreshing: false,
+        })
       }
     },
     async removeFile(file) {
@@ -462,6 +539,7 @@ export default {
       file.deleting = true
       try {
         const result = await deleteFile(file.file_id)
+        this.removeLocalFileName(file.file_id)
         this.notice = result?.message || '删除成功'
         await this.loadFiles()
       } catch (error) {
@@ -493,7 +571,8 @@ export default {
       if (!url || url === '/pages/upload/index') {
         return
       }
-      uni.redirectTo({ url })
+      this.closeSidebar()
+      uni.switchTab({ url })
     },
   },
 }
@@ -510,8 +589,8 @@ export default {
   padding: 88rpx 32rpx 28rpx;
   padding-top: calc(88rpx + constant(safe-area-inset-top));
   padding-top: calc(88rpx + env(safe-area-inset-top));
-  padding-bottom: calc(28rpx + constant(safe-area-inset-bottom));
-  padding-bottom: calc(28rpx + env(safe-area-inset-bottom));
+  padding-bottom: calc(128rpx + constant(safe-area-inset-bottom));
+  padding-bottom: calc(128rpx + env(safe-area-inset-bottom));
   box-sizing: border-box;
   overflow: hidden;
   background:
@@ -520,10 +599,11 @@ export default {
     linear-gradient(180deg, #050b16 0%, #071225 46%, #040914 100%);
 }
 
+
 .ambient {
   position: absolute;
   border-radius: 50%;
-  filter: blur(60rpx);
+  filter: blur(42rpx);
   opacity: 0.46;
   pointer-events: none;
 }
@@ -997,13 +1077,17 @@ export default {
 }
 
 .page-switcher {
-  position: relative;
-  z-index: 2;
-  margin-top: 20rpx;
+  position: fixed;
+  left: 24rpx;
+  right: 24rpx;
+  bottom: calc(24rpx + constant(safe-area-inset-bottom));
+  bottom: calc(24rpx + env(safe-area-inset-bottom));
+  z-index: 30;
   padding: 12rpx;
   border: 1rpx solid rgba(87, 125, 255, 0.16);
   border-radius: 999rpx;
   background: rgba(7, 15, 30, 0.86);
+  box-shadow: 0 18rpx 40rpx rgba(0, 0, 0, 0.24);
   display: flex;
   align-items: center;
   justify-content: center;

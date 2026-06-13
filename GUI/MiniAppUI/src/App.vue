@@ -1,7 +1,10 @@
 <script>
+import { DEFAULT_USER_ID, warmFileCache } from './pages/upload/backend'
+
 export default {
   onLaunch: function () {
     console.log('App Launch')
+    warmFileCache(DEFAULT_USER_ID).catch(() => {})
   },
   onShow: function () {
     console.log('App Show')

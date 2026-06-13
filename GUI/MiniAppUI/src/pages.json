@@ -29,6 +29,18 @@
 		}
 		}
 	],
+	"tabBar": {
+		"custom": true,
+		"color": "#8fa2c9",
+		"selectedColor": "#4c72ff",
+		"backgroundColor": "#071225",
+		"borderStyle": "black",
+		"list": [
+			{ "pagePath": "pages/chat/index", "text": "流式对话" },
+			{ "pagePath": "pages/upload/index", "text": "文档上传" },
+			{ "pagePath": "pages/settings/index", "text": "对话设置" }
+		]
+	},
 	"globalStyle": {
 		"navigationBarTextStyle": "white",
 		"navigationBarTitleText": "文档问答系统",

@@ -3,6 +3,7 @@ import { DEFAULT_HTTP_BASE_URL } from '../chat/backend'
 export const API_BASE = DEFAULT_HTTP_BASE_URL
 export const DEFAULT_USER_ID = 'default_user'
 export const SUPPORTED_EXTENSIONS = ['pdf', 'png', 'jpg', 'jpeg']
+export const FILE_LIST_CACHE_KEY = 'miniapp_upload_files_cache'
 
 export function isSupportedFile(file) {
   if (!file?.name) return false
@@ -82,6 +83,23 @@ export function fetchFiles(userId = DEFAULT_USER_ID) {
   return request({
     url: `${API_BASE}/api/files?user_id=${encodeURIComponent(userId)}`,
   }).then((payload) => (Array.isArray(payload?.files) ? payload.files : []))
+}
+
+export function readCachedFiles() {
+  const cached = uni.getStorageSync(FILE_LIST_CACHE_KEY)
+  return Array.isArray(cached) ? cached : []
+}
+
+export function cacheFiles(files) {
+  if (!Array.isArray(files)) return
+  uni.setStorageSync(FILE_LIST_CACHE_KEY, files)
+}
+
+export function warmFileCache(userId = DEFAULT_USER_ID) {
+  return fetchFiles(userId).then((files) => {
+    cacheFiles(files)
+    return files
+  })
 }
 
 export function fetchFileStatus(fileId) {

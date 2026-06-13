@@ -58,7 +58,6 @@
         </view>
       </view>
     </view>
-
     <view class="page-switcher">
       <view class="page-tab" @tap="goPage('chat')">
         <text class="page-tab-text">流式对话</text>
@@ -135,7 +134,7 @@ export default {
       if (!url || url === '/pages/settings/index') {
         return
       }
-      uni.redirectTo({ url })
+      uni.switchTab({ url })
     },
   },
 }
@@ -152,8 +151,8 @@ export default {
   padding: 88rpx 32rpx 28rpx;
   padding-top: calc(88rpx + constant(safe-area-inset-top));
   padding-top: calc(88rpx + env(safe-area-inset-top));
-  padding-bottom: calc(28rpx + constant(safe-area-inset-bottom));
-  padding-bottom: calc(28rpx + env(safe-area-inset-bottom));
+  padding-bottom: calc(128rpx + constant(safe-area-inset-bottom));
+  padding-bottom: calc(128rpx + env(safe-area-inset-bottom));
   box-sizing: border-box;
   overflow: hidden;
   background:
@@ -162,10 +161,11 @@ export default {
     linear-gradient(180deg, #050b16 0%, #071225 46%, #040914 100%);
 }
 
+
 .ambient {
   position: absolute;
   border-radius: 50%;
-  filter: blur(60rpx);
+  filter: blur(42rpx);
   opacity: 0.46;
   pointer-events: none;
 }
@@ -284,13 +284,17 @@ export default {
 }
 
 .page-switcher {
-  position: relative;
-  z-index: 2;
-  margin-top: 20rpx;
+  position: fixed;
+  left: 24rpx;
+  right: 24rpx;
+  bottom: calc(24rpx + constant(safe-area-inset-bottom));
+  bottom: calc(24rpx + env(safe-area-inset-bottom));
+  z-index: 30;
   padding: 12rpx;
   border: 1rpx solid rgba(87, 125, 255, 0.16);
   border-radius: 999rpx;
   background: rgba(7, 15, 30, 0.86);
+  box-shadow: 0 18rpx 40rpx rgba(0, 0, 0, 0.24);
   display: flex;
   align-items: center;
   justify-content: center;

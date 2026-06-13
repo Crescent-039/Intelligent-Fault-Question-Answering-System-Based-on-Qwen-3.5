@@ -118,16 +118,16 @@
           </view>
         </view>
       </view>
-      <view class="page-switcher">
-        <view class="page-tab active" @tap="goPage('chat')">
-          <text class="page-tab-text">流式对话</text>
-        </view>
-        <view class="page-tab" @tap="goPage('upload')">
-          <text class="page-tab-text">文档上传</text>
-        </view>
-        <view class="page-tab" @tap="goPage('settings')">
-          <text class="page-tab-text">对话设置</text>
-        </view>
+    </view>
+    <view class="page-switcher">
+      <view class="page-tab active" @tap="goPage('chat')">
+        <text class="page-tab-text">流式对话</text>
+      </view>
+      <view class="page-tab" @tap="goPage('upload')">
+        <text class="page-tab-text">文档上传</text>
+      </view>
+      <view class="page-tab" @tap="goPage('settings')">
+        <text class="page-tab-text">对话设置</text>
       </view>
     </view>
   </view>
@@ -158,6 +158,7 @@ export default {
   data() {
     return {
       sidebarOpen: false,
+      pageReady: false,
       message: '',
       ragEnabled: true,
       thinkingEnabled: false,
@@ -210,8 +211,8 @@ export default {
       const state = snapshotAppState()
       this.historyList = state.chatSessions
       this.activeHistoryId = state.activeSessionId
-      this.ragEnabled = Boolean(state.chatSettings.ragEnabled)
-      this.thinkingEnabled = Boolean(state.chatSettings.enableThinking)
+      this.ragEnabled = !Boolean(state.chatSettings.ragEnabled)
+      this.thinkingEnabled = !Boolean(state.chatSettings.enableThinking)
     },
     initClient() {
       this.client = new ChatStreamClient({
@@ -296,11 +297,11 @@ export default {
       this.sidebarOpen = false
     },
     toggleRagMode() {
-      updateChatSettings({ ragEnabled: !this.ragEnabled })
+      updateChatSettings({ ragEnabled: this.ragEnabled })
       this.syncFromState()
     },
     toggleThinkingMode() {
-      updateChatSettings({ enableThinking: !this.thinkingEnabled })
+      updateChatSettings({ enableThinking: this.thinkingEnabled })
       this.syncFromState()
     },
     startNewChat() {
@@ -360,13 +361,13 @@ export default {
           ),
           fileIds: this.currentSession.fileIds || [],
           rag: {
-            enabled: this.ragEnabled,
+            enabled: !this.ragEnabled,
             top_k: Number(snapshotAppState().chatSettings.topK),
           },
           modelConfig: {
             temperature: Number(snapshotAppState().chatSettings.temperature),
             max_tokens: Number(snapshotAppState().chatSettings.maxTokens),
-            enable_thinking: this.thinkingEnabled,
+            enable_thinking: !this.thinkingEnabled,
           },
         })
         this.generating = true
@@ -435,13 +436,13 @@ export default {
           messages: buildChatMessages(requestMessages, snapshotAppState().chatSettings.systemPrompt),
           fileIds: this.currentSession.fileIds || [],
           rag: {
-            enabled: this.ragEnabled,
+            enabled: !this.ragEnabled,
             top_k: Number(snapshotAppState().chatSettings.topK),
           },
           modelConfig: {
             temperature: Number(snapshotAppState().chatSettings.temperature),
             max_tokens: Number(snapshotAppState().chatSettings.maxTokens),
-            enable_thinking: this.thinkingEnabled,
+            enable_thinking: !this.thinkingEnabled,
           },
         })
         this.generating = true
@@ -491,7 +492,8 @@ export default {
       if (!url || url === '/pages/chat/index') {
         return
       }
-      uni.redirectTo({ url })
+      this.closeSidebar()
+      uni.switchTab({ url })
     },
   },
 }
@@ -518,10 +520,11 @@ export default {
     linear-gradient(180deg, #050b16 0%, #071225 46%, #040914 100%);
 }
 
+
 .ambient {
   position: absolute;
   border-radius: 50%;
-  filter: blur(60rpx);
+  filter: blur(42rpx);
   opacity: 0.5;
   pointer-events: none;
 }
@@ -723,8 +726,8 @@ export default {
   flex: 1;
   min-height: 0;
   opacity: 0;
-  transform: translateY(24rpx);
-  transition: opacity 0.32s ease, transform 0.32s ease;
+  transform: translateY(10rpx);
+  transition: opacity 0.12s ease, transform 0.16s ease;
 }
 
 .message-list.active {
@@ -812,12 +815,12 @@ export default {
   justify-content: center;
   padding: 48rpx 20rpx 32rpx;
   text-align: center;
-  transition: opacity 0.35s ease, transform 0.35s ease;
+  transition: opacity 0.14s ease, transform 0.18s ease;
 }
 
 .hero-section.faded {
   opacity: 0;
-  transform: scale(0.92) translateY(-20rpx);
+  transform: scale(0.97) translateY(-8rpx);
   pointer-events: none;
 }
 
@@ -867,6 +870,8 @@ export default {
   position: relative;
   z-index: 2;
   margin-top: auto;
+  padding-bottom: calc(92rpx + constant(safe-area-inset-bottom));
+  padding-bottom: calc(92rpx + env(safe-area-inset-bottom));
 }
 
 .composer-panel {
@@ -1003,11 +1008,17 @@ export default {
 }
 
 .page-switcher {
-  margin-top: 16rpx;
+  position: fixed;
+  left: 24rpx;
+  right: 24rpx;
+  bottom: calc(24rpx + constant(safe-area-inset-bottom));
+  bottom: calc(24rpx + env(safe-area-inset-bottom));
+  z-index: 30;
   padding: 12rpx;
   border: 1rpx solid rgba(87, 125, 255, 0.16);
   border-radius: 999rpx;
   background: rgba(7, 15, 30, 0.86);
+  box-shadow: 0 18rpx 40rpx rgba(0, 0, 0, 0.24);
   display: flex;
   align-items: center;
   justify-content: center;
