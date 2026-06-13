@@ -68,8 +68,22 @@
         >
           <view class="message-role">{{ item.role === 'user' ? '你' : '助手' }}</view>
           <view class="message-bubble" :class="item.role">
-            <text class="message-text">{{ item.content || (item.streaming ? '正在思考...' : '') }}</text>
-            <text v-if="item.streaming" class="message-cursor">|</text>
+            <view v-if="item.role === 'assistant' && item.answerSegments.length" class="message-rich-text">
+              <template v-for="(segment, segmentIndex) in item.answerSegments" :key="`${item.id || index}-${segmentIndex}`">
+                <text v-if="segment.type === 'text'" class="message-text">{{ segment.text }}</text>
+                <text
+                  v-else
+                  class="citation-chip"
+                  :class="{ disabled: item.streaming }"
+                  @tap="item.streaming ? null : openCitationDetail(segment.chunkUid)"
+                >{{ segment.token }}</text>
+              </template>
+              <text v-if="item.streaming" class="message-cursor">|</text>
+            </view>
+            <view v-else class="message-text-wrap">
+              <text class="message-text">{{ item.content || (item.streaming ? '正在思考...' : '') }}</text>
+              <text v-if="item.streaming" class="message-cursor">|</text>
+            </view>
           </view>
           <view v-if="shouldShowMessageActions(item, index)" class="message-actions">
             <text class="message-action" @tap="copyMessage(item)">复制</text>
@@ -116,6 +130,23 @@
               <text class="send-label">{{ generating ? '停止' : '发送' }}</text>
             </view>
           </view>
+        </view>
+      </view>
+    </view>
+
+    <view v-if="citationPopupVisible" class="citation-mask" @tap="closeCitationPopup">
+      <view class="citation-popup" @tap.stop>
+        <view class="citation-header">
+          <text class="citation-title">引用详情</text>
+          <text class="citation-close" @tap="closeCitationPopup">关闭</text>
+        </view>
+        <text v-if="citationLoading" class="citation-loading">正在加载引用内容...</text>
+        <text v-else-if="citationError" class="citation-error">{{ citationError }}</text>
+        <view v-else-if="citationDetail" class="citation-body">
+          <text class="citation-meta">chunk_uid：{{ citationDetail.chunk_uid }}</text>
+          <text v-if="citationDetail.source" class="citation-meta">来源：{{ citationDetail.source }}</text>
+          <text v-if="citationDetail.doc_id" class="citation-meta">doc_id：{{ citationDetail.doc_id }}</text>
+          <text class="citation-content">{{ citationDetail.text }}</text>
         </view>
       </view>
     </view>
@@ -172,6 +203,11 @@ export default {
       scrollIntoView: '',
       bottomAnchorId: 'chat-bottom',
       client: null,
+      citationPopupVisible: false,
+      citationLoading: false,
+      citationError: '',
+      citationDetail: null,
+      pendingCitationRequestId: '',
     }
   },
   computed: {
@@ -182,7 +218,14 @@ export default {
       return this.currentSession?.messages || []
     },
     visibleMessages() {
-      return this.messages.filter((item) => item.content !== DEFAULT_WELCOME_MESSAGE)
+      return this.messages
+        .filter((item) => item.content !== DEFAULT_WELCOME_MESSAGE)
+        .map((item) => ({
+          ...item,
+          answerSegments: item.role === 'assistant'
+            ? this.parseAnswerSegments(item.content || '')
+            : [{ type: 'text', text: item.content || '' }],
+        }))
     },
     activeSessionTitle() {
       return this.currentSession?.title || '新对话'
@@ -213,6 +256,39 @@ export default {
       this.activeHistoryId = state.activeSessionId
       this.ragEnabled = !Boolean(state.chatSettings.ragEnabled)
       this.thinkingEnabled = !Boolean(state.chatSettings.enableThinking)
+    },
+    parseAnswerSegments(content = '') {
+      const regex = /\[r(\d+)\]/g
+      const segments = []
+      let lastIndex = 0
+      let match
+      while ((match = regex.exec(content)) !== null) {
+        if (match.index > lastIndex) segments.push({ type: 'text', text: content.slice(lastIndex, match.index) })
+        segments.push({ type: 'citation', token: match[0], chunkUid: Number(match[1]) })
+        lastIndex = match.index + match[0].length
+      }
+      if (lastIndex < content.length) segments.push({ type: 'text', text: content.slice(lastIndex) })
+      return segments.length ? segments : [{ type: 'text', text: content }]
+    },
+    closeCitationPopup() {
+      this.citationPopupVisible = false
+      this.citationLoading = false
+      this.citationError = ''
+      this.citationDetail = null
+      this.pendingCitationRequestId = ''
+    },
+    openCitationDetail(chunkUid) {
+      this.citationPopupVisible = true
+      this.citationLoading = true
+      this.citationError = ''
+      this.citationDetail = null
+      try {
+        this.pendingCitationRequestId = this.client.requestCitationDetail(chunkUid)
+      } catch (error) {
+        this.citationLoading = false
+        this.citationError = error.message || '引用详情加载失败'
+        this.pendingCitationRequestId = ''
+      }
     },
     initClient() {
       this.client = new ChatStreamClient({
@@ -249,7 +325,20 @@ export default {
             this.streamingSessionId = ''
             this.syncFromState()
           },
+          onCitationDetail: ({ requestId, payload }) => {
+            if (requestId !== this.pendingCitationRequestId) return
+            this.citationLoading = false
+            this.citationError = ''
+            this.citationDetail = payload
+            this.pendingCitationRequestId = ''
+          },
           onError: (error) => {
+            if (error.requestId && error.requestId === this.pendingCitationRequestId) {
+              this.citationLoading = false
+              this.citationError = error.message || '引用详情加载失败'
+              this.pendingCitationRequestId = ''
+              return
+            }
             if (this.streamingSessionId) {
               updateLastSessionMessage(this.streamingSessionId, {
                 streaming: false,
@@ -767,6 +856,27 @@ export default {
   box-shadow: 0 12rpx 28rpx rgba(0, 0, 0, 0.14);
 }
 
+.message-rich-text,
+.message-text-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+
+.citation-chip {
+  margin: 0 8rpx;
+  padding: 4rpx 14rpx;
+  border-radius: 999rpx;
+  background: rgba(76, 114, 255, 0.18);
+  border: 1rpx solid rgba(112, 149, 255, 0.34);
+  color: #8fb0ff;
+  font-size: 26rpx;
+}
+
+.citation-chip.disabled {
+  opacity: 0.48;
+}
+
 .message-bubble.user {
   background: linear-gradient(180deg, rgba(76, 114, 255, 0.9), rgba(63, 95, 214, 0.88));
 }
@@ -1045,4 +1155,47 @@ export default {
   font-size: 22rpx;
   color: rgba(219, 230, 255, 0.9);
 }
+
+.citation-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgba(2, 6, 14, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32rpx;
+}
+
+.citation-popup {
+  width: 100%;
+  max-height: 72vh;
+  padding: 28rpx;
+  border-radius: 28rpx;
+  background: linear-gradient(180deg, rgba(11, 21, 39, 0.98), rgba(7, 13, 24, 0.98));
+  border: 1rpx solid rgba(95, 131, 255, 0.2);
+}
+
+.citation-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 20rpx;
+}
+
+.citation-title,
+.citation-close,
+.citation-loading,
+.citation-error,
+.citation-meta,
+.citation-content {
+  display: block;
+}
+
+.citation-title { font-size: 30rpx; color: #f4f7ff; font-weight: 600; }
+.citation-close { font-size: 24rpx; color: #8fb0ff; }
+.citation-loading { font-size: 24rpx; color: rgba(207, 220, 255, 0.76); }
+.citation-error { font-size: 24rpx; color: #ffb4b4; }
+.citation-body { max-height: 56vh; }
+.citation-meta { margin-bottom: 12rpx; font-size: 22rpx; color: rgba(180, 198, 236, 0.72); }
+.citation-content { margin-top: 12rpx; font-size: 26rpx; line-height: 1.8; color: #eef4ff; white-space: pre-wrap; }
 </style>
