@@ -112,13 +112,13 @@
           <view class="composer-actions">
             <view class="mode-group">
               <view class="ios-switch" :class="{ on: ragEnabled }" @tap="toggleRagMode">
-                <text class="switch-text switch-text-left">通用</text>
-                <text class="switch-text switch-text-right">RAG</text>
+                <text class="switch-text switch-text-left">RAG</text>
+                <text class="switch-text switch-text-right">通用</text>
                 <view class="ios-switch-knob"></view>
               </view>
               <view class="ios-switch" :class="{ on: thinkingEnabled }" @tap="toggleThinkingMode">
-                <text class="switch-text switch-text-left">快速</text>
-                <text class="switch-text switch-text-right">思考</text>
+                <text class="switch-text switch-text-left">思考</text>
+                <text class="switch-text switch-text-right">快速</text>
                 <view class="ios-switch-knob"></view>
               </view>
             </view>
@@ -254,8 +254,8 @@ export default {
       const state = snapshotAppState()
       this.historyList = state.chatSessions
       this.activeHistoryId = state.activeSessionId
-      this.ragEnabled = !Boolean(state.chatSettings.ragEnabled)
-      this.thinkingEnabled = !Boolean(state.chatSettings.enableThinking)
+      this.ragEnabled = Boolean(state.chatSettings.ragEnabled)
+      this.thinkingEnabled = Boolean(state.chatSettings.enableThinking)
     },
     parseAnswerSegments(content = '') {
       const regex = /\[r(\d+)\]/g
@@ -386,11 +386,11 @@ export default {
       this.sidebarOpen = false
     },
     toggleRagMode() {
-      updateChatSettings({ ragEnabled: this.ragEnabled })
+      updateChatSettings({ ragEnabled: !this.ragEnabled })
       this.syncFromState()
     },
     toggleThinkingMode() {
-      updateChatSettings({ enableThinking: this.thinkingEnabled })
+      updateChatSettings({ enableThinking: !this.thinkingEnabled })
       this.syncFromState()
     },
     startNewChat() {
@@ -450,13 +450,13 @@ export default {
           ),
           fileIds: this.currentSession.fileIds || [],
           rag: {
-            enabled: !this.ragEnabled,
+            enabled: this.ragEnabled,
             top_k: Number(snapshotAppState().chatSettings.topK),
           },
           modelConfig: {
             temperature: Number(snapshotAppState().chatSettings.temperature),
             max_tokens: Number(snapshotAppState().chatSettings.maxTokens),
-            enable_thinking: !this.thinkingEnabled,
+            enable_thinking: this.thinkingEnabled,
           },
         })
         this.generating = true
@@ -525,13 +525,13 @@ export default {
           messages: buildChatMessages(requestMessages, snapshotAppState().chatSettings.systemPrompt),
           fileIds: this.currentSession.fileIds || [],
           rag: {
-            enabled: !this.ragEnabled,
+            enabled: this.ragEnabled,
             top_k: Number(snapshotAppState().chatSettings.topK),
           },
           modelConfig: {
             temperature: Number(snapshotAppState().chatSettings.temperature),
             max_tokens: Number(snapshotAppState().chatSettings.maxTokens),
-            enable_thinking: !this.thinkingEnabled,
+            enable_thinking: this.thinkingEnabled,
           },
         })
         this.generating = true
