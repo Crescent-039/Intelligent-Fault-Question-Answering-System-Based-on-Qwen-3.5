@@ -161,25 +161,24 @@
         </view>
         <text v-if="citationLoading" class="citation-loading">正在加载引用内容...</text>
         <text v-else-if="citationError" class="citation-error">{{ citationError }}</text>
-        <scroll-view
-          v-else-if="citationDetail"
-          class="citation-body"
-          scroll-y="true"
-          enhanced="true"
-          show-scrollbar="true"
-        >
+        <view v-else-if="citationDetail" class="citation-body">
           <text class="citation-meta">chunk_uid：{{ citationDetail.chunk_uid }}</text>
           <text v-if="citationDetail.source" class="citation-meta">来源：{{ citationDetail.source }}</text>
           <text v-if="citationDetail.doc_id" class="citation-meta">doc_id：{{ citationDetail.doc_id }}</text>
-          <view class="citation-content">
+          <scroll-view
+            class="citation-content"
+            scroll-y="true"
+            enhanced="true"
+            show-scrollbar="true"
+          >
             <text
               v-for="(char, charIndex) in buildCitationFadeChars(citationDetail.text)"
               :key="`${citationDetail.chunk_uid}-${charIndex}`"
               class="citation-char"
               :style="{ opacity: char.opacity }"
             >{{ char.char }}</text>
-          </view>
-        </scroll-view>
+          </scroll-view>
+        </view>
       </view>
     </view>
     <view class="page-switcher">
@@ -1362,11 +1361,15 @@ export default {
 .citation-loading { font-size: 24rpx; color: rgba(207, 220, 255, 0.76); }
 .citation-error { font-size: 24rpx; color: #ffb4b4; }
 .citation-body {
+  display: flex;
+  flex-direction: column;
   flex: 1;
   min-height: 0;
 }
 .citation-meta { margin-bottom: 12rpx; font-size: 22rpx; color: rgba(180, 198, 236, 0.72); }
 .citation-content {
+  flex: 1;
+  min-height: 0;
   margin-top: 12rpx;
   padding: 20rpx 22rpx;
   border-radius: 20rpx;
