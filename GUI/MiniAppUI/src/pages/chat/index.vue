@@ -161,7 +161,13 @@
         </view>
         <text v-if="citationLoading" class="citation-loading">正在加载引用内容...</text>
         <text v-else-if="citationError" class="citation-error">{{ citationError }}</text>
-        <view v-else-if="citationDetail" class="citation-body">
+        <scroll-view
+          v-else-if="citationDetail"
+          class="citation-body"
+          scroll-y="true"
+          enhanced="true"
+          show-scrollbar="true"
+        >
           <text class="citation-meta">chunk_uid：{{ citationDetail.chunk_uid }}</text>
           <text v-if="citationDetail.source" class="citation-meta">来源：{{ citationDetail.source }}</text>
           <text v-if="citationDetail.doc_id" class="citation-meta">doc_id：{{ citationDetail.doc_id }}</text>
@@ -173,7 +179,7 @@
               :style="{ opacity: char.opacity }"
             >{{ char.char }}</text>
           </view>
-        </view>
+        </scroll-view>
       </view>
     </view>
     <view class="page-switcher">
@@ -346,7 +352,7 @@ export default {
       const length = chars.length
       if (!length) return []
 
-      const edge = Math.min(15, Math.ceil(length / 2))
+      const edge = Math.min(20, Math.ceil(length / 2))
       const denominator = Math.max(edge - 1, 1)
 
       return chars.map((char, index) => {
@@ -1324,12 +1330,15 @@ export default {
 }
 
 .citation-popup {
-  width: 100%;
-  max-height: 72vh;
+  width: 640rpx;
+  height: 860rpx;
   padding: 28rpx;
   border-radius: 28rpx;
   background: linear-gradient(180deg, rgba(11, 21, 39, 0.98), rgba(7, 13, 24, 0.98));
   border: 1rpx solid rgba(95, 131, 255, 0.2);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
 }
 
 .citation-header {
@@ -1352,7 +1361,10 @@ export default {
 .citation-close { font-size: 24rpx; color: #8fb0ff; }
 .citation-loading { font-size: 24rpx; color: rgba(207, 220, 255, 0.76); }
 .citation-error { font-size: 24rpx; color: #ffb4b4; }
-.citation-body { max-height: 56vh; }
+.citation-body {
+  flex: 1;
+  min-height: 0;
+}
 .citation-meta { margin-bottom: 12rpx; font-size: 22rpx; color: rgba(180, 198, 236, 0.72); }
 .citation-content {
   margin-top: 12rpx;
@@ -1363,6 +1375,7 @@ export default {
   font-size: 26rpx;
   line-height: 1.8;
   color: #eef4ff;
+  box-sizing: border-box;
 }
 .citation-char {
   display: inline;

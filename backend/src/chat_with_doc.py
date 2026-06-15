@@ -95,6 +95,10 @@ def resolve_citation(chunk_uid: int):
                 except:
                     next_text = ""
                 source = chunk["source"]
+
+                last = chunk_clear(last_text, chunk["text"])
+                current = chunk_clear(last, next_text)
+
                 return {
                     "chunk_uid": chunk["id"],
                     "global_id": chunk["id"],
@@ -104,10 +108,18 @@ def resolve_citation(chunk_uid: int):
                     "file_name": os.path.basename(source),
                     "source": source,
                     "extension": chunk["extension"],
-                    "text": last_text + chunk["text"] + next_text
+                    "text": current
                 }
     return None
 
+def chunk_clear(a, b):
+    c=a+b
+    for i in range(len(a) if len(a)<len(b) else len(b)):
+        if a[-i-1:]!=b[:i+1]:
+            pass
+        else:
+            c = a[:-i-1]+b
+    return c
 
 def build_context(results):
     context_parts = []

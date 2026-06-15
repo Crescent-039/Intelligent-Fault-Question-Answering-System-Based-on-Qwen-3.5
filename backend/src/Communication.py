@@ -17,11 +17,8 @@ class RagChatService:
         self.model_lock = Lock()
         self.init_rag_service()
 
-    def init_rag_service(self, load_llm=False, warmup=True):
-        if not load_llm:
-            self.embedder = EmbeddingModel(device="cuda")
-        else:
-            self.embedder = EmbeddingModel(device="cpu")
+    def init_rag_service(self, load_llm=True, warmup=True):
+        self.embedder = EmbeddingModel(device="cuda")
 
         self.index_builder = Builder(embedder=self.embedder)
         if load_llm:

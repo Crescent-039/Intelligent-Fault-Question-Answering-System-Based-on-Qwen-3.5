@@ -20,7 +20,7 @@ def clean_text(text):
 def split_sentences(text):
     """按中英文标点分句（简单但实用）"""
     # 匹配句号、问号、感叹号、换行等作为句子结束标志
-    sentences = re.split(r'(?<=[。！？.!?\n])\s*', text)
+    sentences = re.split(r'(?<=[。！？\n])\s*', text)
     # 过滤掉空句子
     return [s.strip() for s in sentences if s.strip()]
 
