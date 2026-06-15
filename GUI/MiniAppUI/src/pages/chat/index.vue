@@ -161,24 +161,40 @@
         </view>
         <text v-if="citationLoading" class="citation-loading">正在加载引用内容...</text>
         <text v-else-if="citationError" class="citation-error">{{ citationError }}</text>
-        <view v-else-if="citationDetail" class="citation-body">
-          <text class="citation-meta">chunk_uid：{{ citationDetail.chunk_uid }}</text>
-          <text v-if="citationDetail.source" class="citation-meta">来源：{{ citationDetail.source }}</text>
-          <text v-if="citationDetail.doc_id" class="citation-meta">doc_id：{{ citationDetail.doc_id }}</text>
+        <template v-else-if="citationDetail">
           <scroll-view
-            class="citation-content"
+            v-if="shouldUseCitationScroll(citationDetail)"
+            class="citation-body citation-body-scroll"
             scroll-y="true"
             enhanced="true"
             show-scrollbar="true"
           >
-            <text
-              v-for="(char, charIndex) in buildCitationFadeChars(citationDetail.text)"
-              :key="`${citationDetail.chunk_uid}-${charIndex}`"
-              class="citation-char"
-              :style="{ opacity: char.opacity }"
-            >{{ char.char }}</text>
+            <text class="citation-meta">chunk_uid：{{ citationDetail.chunk_uid }}</text>
+            <text v-if="citationDetail.source" class="citation-meta">来源：{{ citationDetail.source }}</text>
+            <text v-if="citationDetail.doc_id" class="citation-meta">doc_id：{{ citationDetail.doc_id }}</text>
+            <view class="citation-content">
+              <text
+                v-for="(char, charIndex) in buildCitationFadeChars(citationDetail.text)"
+                :key="`${citationDetail.chunk_uid}-${charIndex}`"
+                class="citation-char"
+                :style="{ opacity: char.opacity }"
+              >{{ char.char }}</text>
+            </view>
           </scroll-view>
-        </view>
+          <view v-else class="citation-body">
+            <text class="citation-meta">chunk_uid：{{ citationDetail.chunk_uid }}</text>
+            <text v-if="citationDetail.source" class="citation-meta">来源：{{ citationDetail.source }}</text>
+            <text v-if="citationDetail.doc_id" class="citation-meta">doc_id：{{ citationDetail.doc_id }}</text>
+            <view class="citation-content">
+              <text
+                v-for="(char, charIndex) in buildCitationFadeChars(citationDetail.text)"
+                :key="`${citationDetail.chunk_uid}-${charIndex}`"
+                class="citation-char"
+                :style="{ opacity: char.opacity }"
+              >{{ char.char }}</text>
+            </view>
+          </view>
+        </template>
       </view>
     </view>
     <view class="page-switcher">
@@ -367,6 +383,10 @@ export default {
           opacity: Number(opacity.toFixed(3)),
         }
       })
+    },
+    shouldUseCitationScroll(detail) {
+      const textLength = Array.from(detail?.text || '').length
+      return textLength > 260
     },
     closeCitationPopup() {
       this.citationPopupVisible = false
@@ -1330,14 +1350,12 @@ export default {
 
 .citation-popup {
   width: 640rpx;
-  height: 860rpx;
+  max-height: 860rpx;
   padding: 28rpx;
   border-radius: 28rpx;
   background: linear-gradient(180deg, rgba(11, 21, 39, 0.98), rgba(7, 13, 24, 0.98));
   border: 1rpx solid rgba(95, 131, 255, 0.2);
   box-sizing: border-box;
-  display: flex;
-  flex-direction: column;
 }
 
 .citation-header {
@@ -1361,15 +1379,14 @@ export default {
 .citation-loading { font-size: 24rpx; color: rgba(207, 220, 255, 0.76); }
 .citation-error { font-size: 24rpx; color: #ffb4b4; }
 .citation-body {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-height: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+.citation-body-scroll {
+  height: 640rpx;
 }
 .citation-meta { margin-bottom: 12rpx; font-size: 22rpx; color: rgba(180, 198, 236, 0.72); }
 .citation-content {
-  flex: 1;
-  min-height: 0;
   margin-top: 12rpx;
   padding: 20rpx 22rpx;
   border-radius: 20rpx;
