@@ -28,6 +28,9 @@ Qwen3-embedding-4B/
 
 # 遗留的测试文件
 Qwen_Chat.py
+chat_with_doc_test.py
+llm_model_test.py
+build_index_test.py
 
 .directory
 .idea

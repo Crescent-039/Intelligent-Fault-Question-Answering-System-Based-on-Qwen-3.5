@@ -1,0 +1,10 @@
+torch
+transformers
+faiss-cpu
+numpy
+pymupdf
+python-docx
+pandas
+openpyxl
+beautifulsoup4
+python-pptx
