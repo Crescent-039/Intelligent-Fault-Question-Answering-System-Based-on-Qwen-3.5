@@ -56,56 +56,31 @@ const renderMessages = computed(() => messages.value.map((message) => ({
 
 let client
 
-function parseAnswerSegments(answerContent) {
-  const content = answerContent || ''
-  const regex = /\[r(\d+)\]/g
-  const segments = []
-  let lastIndex = 0
-  let match
+function renderMarkdown(content, { enableCitations = false, citationDisabled = false } = {}) {
+  const source = content || ''
+  if (!source.trim()) return ''
 
-  while ((match = regex.exec(content)) !== null) {
-    const [token, chunkUidText] = match
-    const matchIndex = match.index
+  const html = marked.parse(
+    enableCitations
+      ? source.replace(/\[r(\d+)\]/g, (_, chunkUid) => `<button class="citation-chip" type="button" data-citation="${chunkUid}"${citationDisabled ? ' disabled' : ''}>[r${chunkUid}]</button>`)
+      : source,
+    { breaks: true, gfm: true },
+  )
 
-    if (matchIndex > lastIndex) {
-      segments.push({
-        type: 'text',
-        text: content.slice(lastIndex, matchIndex),
-      })
-    }
-
-    segments.push({
-      type: 'citation',
-      token,
-      chunkUid: Number(chunkUidText),
-    })
-
-    lastIndex = matchIndex + token.length
-  }
-
-  if (lastIndex < content.length) {
-    segments.push({
-      type: 'text',
-      text: content.slice(lastIndex),
-    })
-  }
-
-  if (!segments.length) {
-    segments.push({
-      type: 'text',
-      text: content,
-    })
-  }
-
-  return segments
+  return DOMPurify.sanitize(html, {
+    ADD_TAGS: ['button'],
+    ADD_ATTR: ['class', 'type', 'data-citation', 'disabled'],
+  })
 }
 
 function parseMessageContent(message) {
   if (message.role !== 'assistant') {
+    const answerContent = message.content || ''
     return {
       thinkingContent: '',
-      answerContent: message.content || '',
-      answerSegments: parseAnswerSegments(message.content || ''),
+      thinkingHtml: '',
+      answerContent,
+      answerHtml: renderMarkdown(answerContent),
     }
   }
 
@@ -115,11 +90,11 @@ function parseMessageContent(message) {
   const thinkingStartIndex = rawContent.indexOf(thinkingStartToken)
 
   if (thinkingStartIndex === -1) {
-    const answerContent = rawContent
     return {
       thinkingContent: '',
-      answerContent,
-      answerSegments: parseAnswerSegments(answerContent),
+      thinkingHtml: '',
+      answerContent: rawContent,
+      answerHtml: renderMarkdown(rawContent, { enableCitations: true, citationDisabled: message.streaming }),
     }
   }
 
@@ -127,20 +102,24 @@ function parseMessageContent(message) {
   const answerBeforeThinking = rawContent.slice(0, thinkingStartIndex)
 
   if (thinkingEndIndex === -1) {
+    const thinkingContent = rawContent.slice(thinkingStartIndex + thinkingStartToken.length).trimStart()
     const answerContent = answerBeforeThinking.trimEnd()
     return {
-      thinkingContent: rawContent.slice(thinkingStartIndex + thinkingStartToken.length).trimStart(),
+      thinkingContent,
+      thinkingHtml: renderMarkdown(thinkingContent),
       answerContent,
-      answerSegments: parseAnswerSegments(answerContent),
+      answerHtml: renderMarkdown(answerContent, { enableCitations: true, citationDisabled: message.streaming }),
     }
   }
 
+  const thinkingContent = rawContent.slice(thinkingStartIndex + thinkingStartToken.length, thinkingEndIndex).trim()
   const answerContent = `${answerBeforeThinking}${rawContent.slice(thinkingEndToken.length + thinkingEndIndex)}`.trim()
 
   return {
-    thinkingContent: rawContent.slice(thinkingStartIndex + thinkingStartToken.length, thinkingEndIndex).trim(),
+    thinkingContent,
+    thinkingHtml: renderMarkdown(thinkingContent),
     answerContent,
-    answerSegments: parseAnswerSegments(answerContent),
+    answerHtml: renderMarkdown(answerContent, { enableCitations: true, citationDisabled: message.streaming }),
   }
 }
 
