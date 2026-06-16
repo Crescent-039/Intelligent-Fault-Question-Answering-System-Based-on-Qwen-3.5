@@ -116,7 +116,7 @@
       <text v-if="errorText" class="chat-error">{{ errorText }}</text>
     </view>
 
-    <view class="bottom-dock">
+    <view class="bottom-dock" :style="bottomDockStyle">
       <view class="composer-panel">
         <view class="composer-field">
           <textarea
@@ -130,8 +130,10 @@
             placeholder="输入你的问题，开始新的对话..."
             placeholder-class="composer-placeholder"
             @input="handleComposerInput"
+            @focus="handleComposerFocus"
             @blur="syncComposerValue"
             @confirm="handleComposerConfirm"
+            @keyboardheightchange="handleKeyboardHeightChange"
           ></textarea>
           <view class="composer-actions">
             <view class="mode-group">
@@ -261,6 +263,7 @@ export default {
       citationDetail: null,
       pendingCitationRequestId: '',
       thinkingCollapseMap: {},
+      keyboardHeight: 0,
     }
   },
   computed: {
@@ -294,6 +297,16 @@ export default {
     },
     canSend() {
       return Boolean(this.message.trim())
+    },
+    bottomDockStyle() {
+      const offset = this.keyboardLiftOffset
+      return {
+        transform: offset > 0 ? `translateY(-${offset}px)` : 'translateY(0)',
+      }
+    },
+    keyboardLiftOffset() {
+      if (!this.keyboardHeight) return 0
+      return Math.max(this.keyboardHeight - 12, 0)
     },
   },
   onLoad() {
@@ -555,13 +568,23 @@ export default {
     handleComposerInput(event) {
       this.message = event?.detail?.value || ''
     },
+    handleComposerFocus(event) {
+      const height = Number(event?.detail?.height || 0)
+      if (height > 0) {
+        this.keyboardHeight = height
+      }
+    },
     syncComposerValue(event) {
+      this.keyboardHeight = 0
       if (!event?.detail) return
       this.message = event.detail.value || ''
     },
     handleComposerConfirm(event) {
       this.syncComposerValue(event)
       this.sendMessage()
+    },
+    handleKeyboardHeightChange(event) {
+      this.keyboardHeight = Number(event?.detail?.height || 0)
     },
     sendMessage() {
       const content = this.message.trim()
@@ -1179,6 +1202,8 @@ export default {
   margin-top: auto;
   padding-bottom: calc(92rpx + constant(safe-area-inset-bottom));
   padding-bottom: calc(92rpx + env(safe-area-inset-bottom));
+  transition: transform 0.2s ease;
+  will-change: transform;
 }
 
 .composer-panel {
