@@ -306,7 +306,7 @@ export default {
     },
     keyboardLiftOffset() {
       if (!this.keyboardHeight) return 0
-      return Math.max(this.keyboardHeight - 12, 0)
+      return Math.max(this.keyboardHeight * 0.42, 0)
     },
   },
   onLoad() {
