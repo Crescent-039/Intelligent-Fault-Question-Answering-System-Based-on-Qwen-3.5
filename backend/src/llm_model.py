@@ -271,46 +271,41 @@ class ThinkingTokenBudgetProcessor(LogitsProcessor):
     当达到限制时，硬性强制输出 </think> 标签，从而完美规避参数校验报错。
     """
 
-    def __init__(self, tokenizer, max_thinking_tokens=300):
+    def __init__(self, tokenizer, max_thinking_tokens=1000):
         self.tokenizer = tokenizer
         self.max_thinking_tokens = max_thinking_tokens
 
-        # 只获取结束符 </think> 和 换行符 \n 的 id
-        self.think_end_id = self.tokenizer.convert_tokens_to_ids("</think>")
-        self.nl_token_id = self.tokenizer.encode("\n", add_special_tokens=False)[0]
+        # 提取结束符和换行符在当前 tokenizer 中的 ID
+        self.think_end_token = self.tokenizer.encode("</think>", add_special_tokens=False)[0]
+        self.nl_token = self.tokenizer.encode("\n", add_special_tokens=False)[0]
 
-        self.prompt_len = None
+        self.tokens_generated = 0
+        self.stopped_thinking = False
         self.neg_inf = float('-inf')
 
     def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
-        # 动态记录初始 Prompt 的长度（仅在第一次调用时执行）
-        if self.prompt_len is None:
-            self.prompt_len = input_ids.shape[1]
+        self.tokens_generated += 1
 
-        # 计算当前已经生成的 token 数量
-        generated_len = input_ids.shape[1] - self.prompt_len
+        if self.max_thinking_tokens is not None and not self.stopped_thinking:
+            # 1. 柔性过渡阶段（消耗达到 95% 以上）：微调换行符和结束符概率，促使模型平滑收尾
+            if (self.tokens_generated / self.max_thinking_tokens) > 0.95:
+                for i in range(scores.shape[0]):
+                    scores[i][self.nl_token] = scores[i][self.think_end_token] * (
+                                1 + (self.tokens_generated / self.max_thinking_tokens))
+                    scores[i][self.think_end_token] = scores[i][self.think_end_token] * (
+                                1 + (self.tokens_generated / self.max_thinking_tokens))
 
-        for i in range(input_ids.shape[0]):
-            seq = input_ids[i].tolist()
-
-            # 检查 </think> 是不是【还没有】被输出过
-            if self.think_end_id not in seq:
-
-                # 思考长度达到 95% 以上时，微调换行和结束符概率
-                if (generated_len / self.max_thinking_tokens) > 0.95:
-                    scores[i][self.nl_token_id] = scores[i][self.think_end_id] * (
-                                1 + (generated_len / self.max_thinking_tokens))
-                    scores[i][self.think_end_id] = scores[i][self.think_end_id] * (
-                                1 + (generated_len / self.max_thinking_tokens))
-
-                # 倒数第二步强制换行，最后一步强制输出 </think>
-                if generated_len >= (self.max_thinking_tokens - 1):
+            # 2. 硬性截断阶段：倒数第二步强制换行，最后一步强制输出 </think>
+            if self.tokens_generated >= (self.max_thinking_tokens - 1):
+                for i in range(scores.shape[0]):
                     new_scores = torch.full_like(scores[i], self.neg_inf)
-                    if generated_len == self.max_thinking_tokens - 1:
-                        new_scores[self.nl_token_id] = 0.0
+                    if self.tokens_generated == self.max_thinking_tokens - 1:
+                        new_scores[self.nl_token] = 0.0
                     else:
-                        new_scores[self.think_end_id] = 0.0
+                        new_scores[self.think_end_token] = 0.0
+                        self.stopped_thinking = True
                     scores[i] = new_scores
+                return scores
 
         return scores
 # --coding:utf-8--
