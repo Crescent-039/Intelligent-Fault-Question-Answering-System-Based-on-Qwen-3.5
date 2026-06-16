@@ -1,5 +1,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import DOMPurify from 'dompurify'
+import { marked } from 'marked'
 import {
   DEFAULT_CLEARED_MESSAGE,
   DEFAULT_WELCOME_MESSAGE,
@@ -56,48 +58,32 @@ const renderMessages = computed(() => messages.value.map((message) => ({
 
 let client
 
-function parseAnswerSegments(answerContent) {
-  const content = answerContent || ''
-  const regex = /\[r(\d+)\]/g
-  const segments = []
-  let lastIndex = 0
-  let match
+marked.setOptions({
+  breaks: true,
+  gfm: true,
+})
 
-  while ((match = regex.exec(content)) !== null) {
-    const [token, chunkUidText] = match
-    const matchIndex = match.index
+function renderMarkdownWithCitations(answerContent = '') {
+  const citationMap = new Map()
+  const placeholderContent = answerContent.replace(/\[r(\d+)\]/g, (_, chunkUidText) => {
+    const chunkUid = Number(chunkUidText)
+    const key = `TRAE_CITATION_${citationMap.size}_${chunkUid}`
+    citationMap.set(key, { chunkUid, token: `[r${chunkUid}]` })
+    return key
+  })
 
-    if (matchIndex > lastIndex) {
-      segments.push({
-        type: 'text',
-        text: content.slice(lastIndex, matchIndex),
-      })
-    }
+  let html = marked.parse(placeholderContent)
+  html = html.replace(/TRAE_CITATION_(\d+)_(\d+)/g, (_, indexText, chunkUidText) => {
+    const key = `TRAE_CITATION_${indexText}_${chunkUidText}`
+    const citation = citationMap.get(key)
+    if (!citation) return ''
+    return `<button type="button" class="citation-chip" data-citation-chunk-uid="${citation.chunkUid}">${citation.token}</button>`
+  })
 
-    segments.push({
-      type: 'citation',
-      token,
-      chunkUid: Number(chunkUidText),
-    })
-
-    lastIndex = matchIndex + token.length
-  }
-
-  if (lastIndex < content.length) {
-    segments.push({
-      type: 'text',
-      text: content.slice(lastIndex),
-    })
-  }
-
-  if (!segments.length) {
-    segments.push({
-      type: 'text',
-      text: content,
-    })
-  }
-
-  return segments
+  return DOMPurify.sanitize(html, {
+    ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'code', 'pre', 'blockquote', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'hr', 'a', 'button'],
+    ALLOWED_ATTR: ['href', 'target', 'rel', 'class', 'type', 'data-citation-chunk-uid'],
+  })
 }
 
 function parseMessageContent(message) {
@@ -105,7 +91,7 @@ function parseMessageContent(message) {
     return {
       thinkingContent: '',
       answerContent: message.content || '',
-      answerSegments: parseAnswerSegments(message.content || ''),
+      answerHtml: renderMarkdownWithCitations(message.content || ''),
     }
   }
 
@@ -119,7 +105,7 @@ function parseMessageContent(message) {
     return {
       thinkingContent: '',
       answerContent,
-      answerSegments: parseAnswerSegments(answerContent),
+      answerHtml: renderMarkdownWithCitations(answerContent),
     }
   }
 
@@ -131,7 +117,7 @@ function parseMessageContent(message) {
     return {
       thinkingContent: rawContent.slice(thinkingStartIndex + thinkingStartToken.length).trimStart(),
       answerContent,
-      answerSegments: parseAnswerSegments(answerContent),
+      answerHtml: renderMarkdownWithCitations(answerContent),
     }
   }
 
@@ -140,7 +126,7 @@ function parseMessageContent(message) {
   return {
     thinkingContent: rawContent.slice(thinkingStartIndex + thinkingStartToken.length, thinkingEndIndex).trim(),
     answerContent,
-    answerSegments: parseAnswerSegments(answerContent),
+    answerHtml: renderMarkdownWithCitations(answerContent),
   }
 }
 
@@ -194,6 +180,14 @@ async function openCitationDetail(chunkUid) {
     citationError.value = error.message || '引用详情加载失败'
     pendingCitationRequestId.value = null
   }
+}
+
+function handleAnswerContentClick(event) {
+  const button = event.target.closest?.('[data-citation-chunk-uid]')
+  if (!button) return
+  const chunkUid = Number(button.dataset.citationChunkUid)
+  if (!Number.isFinite(chunkUid)) return
+  openCitationDetail(chunkUid)
 }
 
 function scrollToBottom() {
@@ -643,18 +637,8 @@ onBeforeUnmount(() => {
                     <div class="thinking-body">{{ message.parsed.thinkingContent }}</div>
                   </details>
 
-                  <div v-if="message.parsed.answerContent" class="answer-content">
-                    <template v-for="(segment, segmentIndex) in message.parsed.answerSegments" :key="`${index}-${segmentIndex}`">
-                      <span v-if="segment.type === 'text'">{{ segment.text }}</span>
-                      <button
-                        v-else
-                        class="citation-chip"
-                        :disabled="message.streaming"
-                        @click="openCitationDetail(segment.chunkUid)"
-                      >
-                        {{ segment.token }}
-                      </button>
-                    </template>
+                  <div v-if="message.parsed.answerContent" class="answer-content markdown-body" @click="handleAnswerContentClick">
+                    <div v-html="message.parsed.answerHtml"></div>
                     <span v-if="message.streaming" class="cursor"></span>
                   </div>
 
@@ -718,6 +702,59 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.answer-content :deep(p),
+.answer-content :deep(ul),
+.answer-content :deep(ol),
+.answer-content :deep(blockquote),
+.answer-content :deep(pre),
+.answer-content :deep(h1),
+.answer-content :deep(h2),
+.answer-content :deep(h3),
+.answer-content :deep(h4) {
+  margin: 0 0 0.75rem;
+}
+
+.answer-content :deep(p:last-child),
+.answer-content :deep(ul:last-child),
+.answer-content :deep(ol:last-child),
+.answer-content :deep(blockquote:last-child),
+.answer-content :deep(pre:last-child) {
+  margin-bottom: 0;
+}
+
+.answer-content :deep(pre) {
+  overflow-x: auto;
+  padding: 0.85rem 1rem;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.72);
+}
+
+.answer-content :deep(code) {
+  font-family: Consolas, Monaco, monospace;
+}
+
+.answer-content :deep(:not(pre) > code) {
+  padding: 0.12rem 0.35rem;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.answer-content :deep(blockquote) {
+  margin-left: 0;
+  padding-left: 0.9rem;
+  border-left: 3px solid rgba(86, 134, 254, 0.45);
+  color: var(--muted);
+}
+
+.answer-content :deep(ul),
+.answer-content :deep(ol) {
+  padding-left: 1.25rem;
+}
+
+.answer-content :deep(a) {
+  color: #7cb6ff;
+}
+
 .citation-chip {
   margin: 0 0.2rem;
   padding: 0.08rem 0.45rem;
