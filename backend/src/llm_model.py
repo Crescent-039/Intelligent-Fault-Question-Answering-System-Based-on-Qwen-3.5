@@ -2,6 +2,7 @@ import torch
 from threading import Thread, Event
 from transformers import AutoTokenizer, AutoModelForCausalLM, TextIteratorStreamer, \
     StoppingCriteria, StoppingCriteriaList
+from transformers.generation import LogitsProcessor, LogitsProcessorList
 
 
 from config import (
@@ -131,6 +132,13 @@ class LLMModel:
             6、除非用户要求，否则在自我介绍时不要引用资料、不要输出参考文档、不要使用类似 [r1043] 的引用标记。
             """
         )
+
+        thinking_prompt = (
+            """
+            在开启思考模式的情况下，你应当在思考模式前固定输出"Thinking Process:"这几个字符
+            """
+        )
+
         system_prompt = ""
         conversation_messages = []
         for message in messages or []:
@@ -191,8 +199,13 @@ class LLMModel:
         if system_prompt:
             final_system_prompt += "\n\n用户自定义系统提示词：\n" + system_prompt
 
+        if enable_thinking:
+            thinking_system_prompt = thinking_prompt
+        else:
+            thinking_system_prompt = ""
+
         final_messages = [
-            {"role": "system", "content": final_system_prompt},
+            {"role": "system", "content": final_system_prompt + thinking_system_prompt},
             *conversation_messages
         ]
 
@@ -217,10 +230,20 @@ class LLMModel:
             skip_prompt=True,
             skip_special_tokens=True
         )
+
+        # 构建 logits_processor
+        logits_processor = LogitsProcessorList()
+        if enable_thinking:
+            # 实例化自定义的拦截器，限制思考 token 不超过 300
+            logits_processor.append(
+                ThinkingTokenBudgetProcessor(self.tokenizer, max_thinking_tokens=1700)
+            )
+
         generation_kwargs = dict(
             **inputs,
             streamer=streamer,
             max_new_tokens=max_tokens,
+            logits_processor=logits_processor,
             do_sample=True,
             temperature=temperature,
             top_p=0.9,
@@ -240,4 +263,54 @@ class LLMModel:
             yield new_text
         thread.join()
 
+
+class ThinkingTokenBudgetProcessor(LogitsProcessor):
+    """
+    通过自定义 LogitsProcessor 限制模型的思考长度。
+    当生成的 token 数量接近限制时，柔性引导模型收敛并输出 </think>；
+    当达到限制时，硬性强制输出 </think> 标签，从而完美规避参数校验报错。
+    """
+
+    def __init__(self, tokenizer, max_thinking_tokens=300):
+        self.tokenizer = tokenizer
+        self.max_thinking_tokens = max_thinking_tokens
+
+        # 只获取结束符 </think> 和 换行符 \n 的 id
+        self.think_end_id = self.tokenizer.convert_tokens_to_ids("</think>")
+        self.nl_token_id = self.tokenizer.encode("\n", add_special_tokens=False)[0]
+
+        self.prompt_len = None
+        self.neg_inf = float('-inf')
+
+    def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
+        # 动态记录初始 Prompt 的长度（仅在第一次调用时执行）
+        if self.prompt_len is None:
+            self.prompt_len = input_ids.shape[1]
+
+        # 计算当前已经生成的 token 数量
+        generated_len = input_ids.shape[1] - self.prompt_len
+
+        for i in range(input_ids.shape[0]):
+            seq = input_ids[i].tolist()
+
+            # 检查 </think> 是不是【还没有】被输出过
+            if self.think_end_id not in seq:
+
+                # 思考长度达到 95% 以上时，微调换行和结束符概率
+                if (generated_len / self.max_thinking_tokens) > 0.95:
+                    scores[i][self.nl_token_id] = scores[i][self.think_end_id] * (
+                                1 + (generated_len / self.max_thinking_tokens))
+                    scores[i][self.think_end_id] = scores[i][self.think_end_id] * (
+                                1 + (generated_len / self.max_thinking_tokens))
+
+                # 倒数第二步强制换行，最后一步强制输出 </think>
+                if generated_len >= (self.max_thinking_tokens - 1):
+                    new_scores = torch.full_like(scores[i], self.neg_inf)
+                    if generated_len == self.max_thinking_tokens - 1:
+                        new_scores[self.nl_token_id] = 0.0
+                    else:
+                        new_scores[self.think_end_id] = 0.0
+                    scores[i] = new_scores
+
+        return scores
 # --coding:utf-8--
