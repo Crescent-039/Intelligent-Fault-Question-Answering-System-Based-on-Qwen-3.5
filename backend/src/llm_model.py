@@ -135,7 +135,8 @@ class LLMModel:
 
         thinking_prompt = (
             """
-            在开启思考模式的情况下，你应当在思考模式前固定输出"Thinking Process:"这几个字符
+            在开启思考模式的情况下，系统会在输出开始前统一补充"Thinking Process:"前缀。
+            你直接输出思考内容即可，不要重复输出"Thinking Process:"这几个字符。
             """
         )
 
@@ -259,8 +260,38 @@ class LLMModel:
             kwargs=generation_kwargs
         )
         thread.start()
+
+        thinking_prefix = "Thinking Process:"
+        prefix_probe_buffer = ""
+        waiting_prefix_probe = enable_thinking
+
+        if enable_thinking:
+            yield thinking_prefix
+
         for new_text in streamer:
-            yield new_text
+            if not waiting_prefix_probe:
+                yield new_text
+                continue
+
+            if not new_text:
+                continue
+
+            prefix_probe_buffer += new_text
+            stripped_probe = prefix_probe_buffer.lstrip()
+
+            if thinking_prefix.startswith(stripped_probe):
+                continue
+
+            waiting_prefix_probe = False
+
+            if stripped_probe.startswith(thinking_prefix):
+                deduped_text = stripped_probe[len(thinking_prefix):].lstrip("\r\n")
+                if deduped_text:
+                    yield deduped_text
+                continue
+
+            yield prefix_probe_buffer
+
         thread.join()
 
 
