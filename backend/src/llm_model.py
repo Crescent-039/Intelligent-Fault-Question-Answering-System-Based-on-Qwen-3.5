@@ -176,7 +176,7 @@ class LLMModel:
                    不要说明你正在“根据资料回答”，直接给出答案和引用。
                 如果资料中没有答案，请说“资料中没有提供相关信息”。
                 5、**条件限制**
-                类似[r1043]的anchor标记请在每一句回答的句号后输出。
+                禁止使用markdown格式输出文本，但是可以使用自然语言分出几点对问题进行论述回答、分段以及适当的换行来组织答案。
                 {self_intro_prompt}
                 特殊规则：
                 当用户是在询问你的身份、能力或使用方式时，可以直接介绍你的功能，不需要强行依据资料回答，也不需要引用资料，也不要使用类似 [r1043] 的引用标记。
@@ -237,7 +237,7 @@ class LLMModel:
         if enable_thinking:
             # 实例化自定义的拦截器，限制思考 token 不超过 300
             logits_processor.append(
-                ThinkingTokenBudgetProcessor(self.tokenizer, max_thinking_tokens=1700)
+                ThinkingTokenBudgetProcessor(self.tokenizer, max_thinking_tokens=350)
             )
 
         generation_kwargs = dict(
@@ -245,7 +245,7 @@ class LLMModel:
             streamer=streamer,
             max_new_tokens=max_tokens,
             logits_processor=logits_processor,
-            do_sample=True,
+            do_sample=False,
             temperature=temperature,
             top_p=0.9,
             use_cache=True,
@@ -315,28 +315,35 @@ class ThinkingTokenBudgetProcessor(LogitsProcessor):
         self.neg_inf = float('-inf')
 
     def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
+        if self.max_thinking_tokens is None or self.stopped_thinking:
+            return scores
+
+        # 模型如果已经自然输出了 </think>，后续 token 不再参与思考预算控制
+        if input_ids.shape[1] > 0 and torch.any(input_ids[:, -1] == self.think_end_token):
+            self.stopped_thinking = True
+            return scores
+
         self.tokens_generated += 1
 
-        if self.max_thinking_tokens is not None and not self.stopped_thinking:
-            # 1. 柔性过渡阶段（消耗达到 95% 以上）：微调换行符和结束符概率，促使模型平滑收尾
-            if (self.tokens_generated / self.max_thinking_tokens) > 0.95:
-                for i in range(scores.shape[0]):
-                    scores[i][self.nl_token] = scores[i][self.think_end_token] * (
-                                1 + (self.tokens_generated / self.max_thinking_tokens))
-                    scores[i][self.think_end_token] = scores[i][self.think_end_token] * (
-                                1 + (self.tokens_generated / self.max_thinking_tokens))
+        # 1. 柔性过渡阶段（消耗达到 75% 以上）：微调换行符和结束符概率，促使模型平滑收尾
+        if (self.tokens_generated / self.max_thinking_tokens) > 0.75:
+            for i in range(scores.shape[0]):
+                scores[i][self.nl_token] = scores[i][self.think_end_token] * (
+                            1 + (self.tokens_generated / self.max_thinking_tokens))
+                scores[i][self.think_end_token] = scores[i][self.think_end_token] * (
+                            1 + (self.tokens_generated / self.max_thinking_tokens))
 
-            # 2. 硬性截断阶段：倒数第二步强制换行，最后一步强制输出 </think>
-            if self.tokens_generated >= (self.max_thinking_tokens - 1):
-                for i in range(scores.shape[0]):
-                    new_scores = torch.full_like(scores[i], self.neg_inf)
-                    if self.tokens_generated == self.max_thinking_tokens - 1:
-                        new_scores[self.nl_token] = 0.0
-                    else:
-                        new_scores[self.think_end_token] = 0.0
-                        self.stopped_thinking = True
-                    scores[i] = new_scores
-                return scores
+        # 2. 硬性截断阶段：倒数第二步强制换行，最后一步强制输出 </think>
+        if self.tokens_generated >= (self.max_thinking_tokens - 1):
+            for i in range(scores.shape[0]):
+                new_scores = torch.full_like(scores[i], self.neg_inf)
+                if self.tokens_generated == self.max_thinking_tokens - 1:
+                    new_scores[self.nl_token] = 0.0
+                else:
+                    new_scores[self.think_end_token] = 0.0
+                    self.stopped_thinking = True
+                scores[i] = new_scores
+            return scores
 
         return scores
 # --coding:utf-8--
