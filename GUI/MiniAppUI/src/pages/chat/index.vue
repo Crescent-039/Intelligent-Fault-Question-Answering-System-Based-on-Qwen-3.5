@@ -120,13 +120,18 @@
       <view class="composer-panel">
         <view class="composer-field">
           <textarea
-            v-model="message"
+            :value="message"
             class="composer-input"
             maxlength="-1"
             auto-height
             cursor-spacing="24"
+            confirm-type="send"
+            :show-confirm-bar="false"
             placeholder="输入你的问题，开始新的对话..."
             placeholder-class="composer-placeholder"
+            @input="handleComposerInput"
+            @blur="syncComposerValue"
+            @confirm="handleComposerConfirm"
           ></textarea>
           <view class="composer-actions">
             <view class="mode-group">
@@ -546,6 +551,17 @@ export default {
       }
       deleteChatSession(sessionId)
       this.syncFromState()
+    },
+    handleComposerInput(event) {
+      this.message = event?.detail?.value || ''
+    },
+    syncComposerValue(event) {
+      if (!event?.detail) return
+      this.message = event.detail.value || ''
+    },
+    handleComposerConfirm(event) {
+      this.syncComposerValue(event)
+      this.sendMessage()
     },
     sendMessage() {
       const content = this.message.trim()
