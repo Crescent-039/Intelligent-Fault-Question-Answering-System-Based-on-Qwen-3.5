@@ -494,6 +494,7 @@ h3 { margin-bottom: 0; font-size: 17px; }
 .upload-top-grid {
   display: grid;
   grid-template-columns: minmax(280px, 0.85fr) minmax(360px, 1.15fr);
+  flex: 0 0 auto;
   gap: 18px;
   margin-top: 20px;
   min-height: 0;
@@ -586,8 +587,10 @@ h3 { margin-bottom: 0; font-size: 17px; }
 .file-library {
   display: flex;
   flex-direction: column;
-  flex: 1 1 auto;
-  min-height: 0;
+  flex: 0 0 480px;
+  height: 480px;
+  min-height: 480px;
+  max-height: 480px;
   overflow: hidden;
 }
 
@@ -620,15 +623,15 @@ h3 { margin-bottom: 0; font-size: 17px; }
 }
 
 .workspace.mode-upload .module-panel.upload-panel {
-  overflow: visible;
+  overflow: hidden;
 }
 
 .workspace.mode-upload .file-library {
-  overflow: visible;
+  overflow: hidden;
 }
 
 .workspace.mode-upload .file-list {
-  overflow: visible;
+  overflow-y: auto;
 }
 
 .file-row,
@@ -975,5 +978,6 @@ h3 { margin-bottom: 0; font-size: 17px; }
   .panel-header,
   .file-card,
   .file-row { align-items: flex-start; flex-direction: column; }
+  .file-library { flex: 0 0 420px; height: 420px; min-height: 420px; max-height: 420px; }
   .message { max-width: 94%; }
 }

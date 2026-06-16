@@ -83,16 +83,18 @@
                 </view>
               </view>
               <view v-if="item.parsed.answerContent" class="message-rich-text">
-                <template v-for="(segment, segmentIndex) in item.parsed.answerSegments" :key="`${item.id || index}-${segmentIndex}`">
-                  <text v-if="segment.type === 'text'" class="message-text">{{ segment.text }}</text>
-                  <text
-                    v-else
-                    class="citation-chip"
-                    :class="{ disabled: item.streaming }"
-                    @tap="item.streaming ? null : openCitationDetail(segment.chunkUid)"
-                  >{{ segment.token }}</text>
-                </template>
-                <text v-if="item.streaming" class="message-cursor">|</text>
+                <text class="message-inline-flow">
+                  <template v-for="(segment, segmentIndex) in item.parsed.answerSegments" :key="`${item.id || index}-${segmentIndex}`">
+                    <text v-if="segment.type === 'text'" class="message-text">{{ segment.text }}</text>
+                    <text
+                      v-else
+                      class="citation-chip"
+                      :class="{ disabled: item.streaming }"
+                      @tap="item.streaming ? null : openCitationDetail(segment.chunkUid)"
+                    >{{ segment.token }}</text>
+                  </template>
+                  <text v-if="item.streaming" class="message-cursor">|</text>
+                </text>
               </view>
               <view v-else-if="item.streaming && !item.parsed.thinkingContent" class="message-text-wrap">
                 <text class="message-text">正在思考...</text>
@@ -1021,7 +1023,19 @@ export default {
   gap: 16rpx;
 }
 
-.message-rich-text,
+.message-rich-text {
+  display: block;
+}
+
+.message-inline-flow {
+  display: block;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 28rpx;
+  line-height: 1.7;
+  color: #eef4ff;
+}
+
 .message-text-wrap {
   display: flex;
   flex-wrap: wrap;
@@ -1084,8 +1098,9 @@ export default {
 }
 
 .citation-chip {
-  margin: 0 8rpx;
-  padding: 4rpx 14rpx;
+  display: inline;
+  margin-left: 8rpx;
+  margin-right: 8rpx;
   border-radius: 999rpx;
   background: rgba(76, 114, 255, 0.18);
   border: 1rpx solid rgba(112, 149, 255, 0.34);
@@ -1102,11 +1117,11 @@ export default {
 }
 
 .message-text {
-  white-space: pre-wrap;
-  word-break: break-all;
-  font-size: 28rpx;
-  line-height: 1.7;
-  color: #eef4ff;
+  white-space: inherit;
+  word-break: break-word;
+  font-size: inherit;
+  line-height: inherit;
+  color: inherit;
 }
 
 .message-cursor {
