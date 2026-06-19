@@ -16,7 +16,7 @@ const DEFAULT_RUNTIME_CONFIG = {
       heartbeat_interval_ms: 30_000,
     },
     upload: {
-      supported_extensions: ['pdf', 'png', 'jpg', 'jpeg'],
+      supported_extensions: ['txt', 'md', 'pdf', 'docx', 'csv', 'xlsx', 'xls', 'html', 'htm', 'pptx', 'ppt'],
       max_file_size_mb: 100,
       max_batch_count: 200,
       concurrent_uploads: 3,

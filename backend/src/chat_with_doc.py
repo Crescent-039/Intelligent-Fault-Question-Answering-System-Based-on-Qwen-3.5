@@ -1,4 +1,5 @@
 import os
+import time
 
 import faiss
 
@@ -76,6 +77,7 @@ def retrieve_by_file_ids(query, embedder, file_ids=None, top_k=3):
 
 
 def resolve_citation(chunk_uid: int):
+    citation_start = time.perf_counter()
     manifest = load_index_manifest()
     for file_id, file_meta in manifest.items():
         if file_id == "_meta":
@@ -99,6 +101,8 @@ def resolve_citation(chunk_uid: int):
                 last = chunk_clear(last_text, chunk["text"])
                 current = chunk_clear(last, next_text)
 
+                citation_elapsed = time.perf_counter() - citation_start
+                print(f"[Citation] chunk_uid={chunk_uid} | 引用查询时间: {citation_elapsed:.4f}s")
                 return {
                     "chunk_uid": chunk["id"],
                     "global_id": chunk["id"],
@@ -110,6 +114,8 @@ def resolve_citation(chunk_uid: int):
                     "extension": chunk["extension"],
                     "text": current
                 }
+    citation_elapsed = time.perf_counter() - citation_start
+    print(f"[Citation] chunk_uid={chunk_uid} | 引用查询时间: {citation_elapsed:.4f}s")
     return None
 
 def chunk_clear(a, b):
@@ -139,6 +145,20 @@ def build_context(results):
             f"{text}"
         )
     return "\n\n".join(context_parts)
+
+
+def stream_chat_with_timing(llm, messages, context, **stream_kwargs):
+    qa_start = time.perf_counter()
+    first_response_time = None
+    for new_text in llm.stream_chat(messages, context, **stream_kwargs):
+        if first_response_time is None:
+            first_response_time = time.perf_counter() - qa_start
+        yield new_text
+    total_answer_time = time.perf_counter() - qa_start
+    if first_response_time is None:
+        first_response_time = total_answer_time
+    print(f"\n首响应时间: {first_response_time:.4f}s")
+    print(f"完整回答时间: {total_answer_time:.4f}s")
 
 
 def main():
@@ -173,7 +193,7 @@ def main():
         # 6. LLM 流式回答
         print("\n正在生成答案...\n")
         print("模型回答：", end="", flush=True)
-        for new_text in llm.stream_chat(query, context, enable_thinking=True):
+        for new_text in stream_chat_with_timing(llm, query, context, enable_thinking=True):
             print(new_text, end="", flush=True)
         print()
 

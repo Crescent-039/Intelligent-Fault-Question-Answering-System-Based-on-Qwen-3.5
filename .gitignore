@@ -19,6 +19,10 @@ obj/
 .vs/
 checkpoint/
 
+# 文档类文件
+backend/midway/uploads
+backend/src/eval/tmp
+
 # 后端相关文件
 data/
 docs/

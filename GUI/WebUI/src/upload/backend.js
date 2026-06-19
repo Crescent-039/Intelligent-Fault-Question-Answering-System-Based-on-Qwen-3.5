@@ -4,7 +4,7 @@ const frontendConfig = getFrontendConfig()
 const API_BASE = frontendConfig.api?.http_base_url || ''
 
 export const DEFAULT_USER_ID = frontendConfig.user?.default_user_id || 'default_user'
-export const SUPPORTED_EXTENSIONS = frontendConfig.upload?.supported_extensions || ['pdf', 'png', 'jpg', 'jpeg']
+export const SUPPORTED_EXTENSIONS = frontendConfig.upload?.supported_extensions || ['txt', 'md', 'pdf', 'docx', 'csv', 'xlsx', 'xls', 'html', 'htm', 'pptx', 'ppt']
 export const ACCEPT_ATTRIBUTE = SUPPORTED_EXTENSIONS.map((extension) => `.${extension}`).join(',')
 
 export function isSupportedFile(file) {
@@ -28,7 +28,7 @@ async function parseResponse(response) {
 
 export async function uploadFile(file, userId = DEFAULT_USER_ID) {
   if (!isSupportedFile(file)) {
-    const error = new Error('仅支持 pdf / png / jpg / jpeg 格式')
+    const error = new Error(`仅支持 ${SUPPORTED_EXTENSIONS.join(' / ')} 格式`)
     error.code = 'UNSUPPORTED_FILE_TYPE'
     throw error
   }

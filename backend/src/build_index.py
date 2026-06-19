@@ -1,5 +1,6 @@
 import faiss
 import os
+import time
 import uuid
 from pathlib import Path
 
@@ -22,9 +23,11 @@ class Builder:
         ensure_dir(INDEXES_DIR)
 
     def build_file_index(self, file_id, file_path):
+        preprocess_start = time.perf_counter()
         document = parse_document(file_path)
         cleaned_text = clean_text(document["text"])
         chunks = chunk_text_by_sentences(cleaned_text, chunk_size=CHUNK_SIZE, overlap_sentences=CHUNK_OVERLAP)
+        preprocess_elapsed = time.perf_counter() - preprocess_start
         if not chunks:
             raise ValueError("没有生成任何 chunk，程序结束。")
         manifest = self.load_manifest()
@@ -42,10 +45,22 @@ class Builder:
                 "extension": document.get("extension", "")
             })
             current_global_id += 1
+        file_size_bytes = os.path.getsize(file_path)
+        print(
+            f"[Index] 文件: {os.path.basename(file_path)} | 格式: {document.get('extension', '')} | "
+            f"大小: {file_size_bytes} B | chunk数量: {len(chunk_records)} | "
+            f"chunk预处理耗时: {preprocess_elapsed:.4f}s"
+        )
         texts = [item["text"] for item in chunk_records]
         embeddings = self.embedder.encode(texts)
         index = faiss.IndexFlatIP(embeddings.shape[1])
         index.add(embeddings)
+        preprocess_index_elapsed = time.perf_counter() - preprocess_start
+        print(
+            f"[Index] 文件: {os.path.basename(file_path)} | 格式: {document.get('extension', '')} | "
+            f"大小: {file_size_bytes} B | chunk数量: {len(chunk_records)} | "
+            f"chunk+索引建立预处理耗时: {preprocess_index_elapsed:.4f}s"
+        )
         chunks_path = self.get_chunks_path(file_id)
         index_path = self.get_index_path(file_id)
         save_json(chunk_records, chunks_path)
@@ -63,7 +78,10 @@ class Builder:
         )
         return {
             "file_id": file_id,
+            "extension": document.get("extension", ""),
+            "file_size_bytes": file_size_bytes,
             "chunk_count": len(chunk_records),
+            "preprocess_time_seconds": preprocess_elapsed,
             "start_global_id": start_global_id,
             "end_global_id": current_global_id - 1,
             "chunks_path": chunks_path,

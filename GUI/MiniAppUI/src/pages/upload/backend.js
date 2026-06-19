@@ -2,7 +2,7 @@ import { DEFAULT_HTTP_BASE_URL } from '../chat/backend'
 
 export const API_BASE = DEFAULT_HTTP_BASE_URL
 export const DEFAULT_USER_ID = 'default_user'
-export const SUPPORTED_EXTENSIONS = ['pdf', 'png', 'jpg', 'jpeg']
+export const SUPPORTED_EXTENSIONS = ['txt', 'md', 'pdf', 'docx', 'csv', 'xlsx', 'xls', 'html', 'htm', 'pptx', 'ppt']
 export const FILE_LIST_CACHE_KEY = 'miniapp_upload_files_cache'
 
 export function isSupportedFile(file) {
@@ -53,7 +53,7 @@ function request({ url, method = 'GET', data }) {
 
 export function uploadFile(file, userId = DEFAULT_USER_ID) {
   if (!isSupportedFile(file)) {
-    throw normalizeError({ code: 'UNSUPPORTED_FILE_TYPE', message: '仅支持 pdf / png / jpg / jpeg 格式' }, '文件类型不支持')
+    throw normalizeError({ code: 'UNSUPPORTED_FILE_TYPE', message: `仅支持 ${SUPPORTED_EXTENSIONS.join(' / ')} 格式` }, '文件类型不支持')
   }
 
   return new Promise((resolve, reject) => {

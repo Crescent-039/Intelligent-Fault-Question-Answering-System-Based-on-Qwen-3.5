@@ -1,6 +1,6 @@
 from embedding_model import EmbeddingModel
 from llm_model import LLMModel
-from chat_with_doc import retrieve_by_file_ids, build_context, resolve_citation
+from chat_with_doc import retrieve_by_file_ids, build_context, resolve_citation, stream_chat_with_timing
 from build_index import Builder
 import sys
 import torch
@@ -53,7 +53,7 @@ class RagChatService:
         if self.llm is None:
             return
         print("[LLM] 正在 warmup...")
-        for _ in self.llm.stream_chat(
+        for _ in stream_chat_with_timing(self.llm,
                 messages=[
                     {"role": "system", "content": "你是一个助手，请简短回答。"},
                     {"role": "user", "content": "你好"}
@@ -131,7 +131,8 @@ class RagChatService:
             )
             context = build_context(results)
             # 流式输出
-            for new_text in self.llm.stream_chat(
+            for new_text in stream_chat_with_timing(
+                    llm=self.llm,
                     messages=normalized_messages,
                     context=context,
                     temperature=tem,
@@ -146,7 +147,8 @@ class RagChatService:
 
         else:
             context = ""
-            for new_text in self.llm.stream_chat(
+            for new_text in stream_chat_with_timing(
+                    llm=self.llm,
                     messages=normalized_messages,
                     context=context,
                     temperature=tem,
